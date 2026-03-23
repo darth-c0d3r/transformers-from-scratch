@@ -1,0 +1,11 @@
+{
+
+	// tokenizer details
+	"tokenizer": "../../logs/wiki_italian_neorealism/tokenizer/",
+
+	// model details
+	"model_dir": "../../logs/wiki_italian_neorealism/model/best_pplx_ckpt/",
+	"dtype": "torch.float32",
+
+	// generation hyper-params
+}
