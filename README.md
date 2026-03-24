@@ -1,10 +1,14 @@
 # Overview
 
-This project started and later grew from the assignment 1 for the Stanford CS336 (2025) course. This repo implements various features of a Transformer-based decoder-only LLM from scratch.
+A from-scratch implementation of the modern LLM stack. Covers BPE tokenizer training and encoding (with optimizations like fast parallel merges, phantom token pruning, and greedy prefix matching), and end-to-end transformer training with AdamW, RoPE, GQA, and KV caching. Built to understand what's really happening under the hood. Started off as an assignment for the Stanford CS336 (2025) course.
 
 # Task 1: Build Tokenizers
 
 ## Tokenization Optimizations & Modifications
+
+### Byte-Pair Encoding
+- Standard BPE Implementations.
+- Add necessities like pre-tokenization and optimizations like parallelization.
 
 ### 2-Pointer Greedy Approach
 - Rather than merging individual pairs, just try to get the longest prefix match.

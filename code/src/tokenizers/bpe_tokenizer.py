@@ -199,7 +199,7 @@ class BPE_Tokenizer():
 			"fast": self.encode_core_fast,
 		}
 
-		# the default vocabulary contains index -> byte(index)
+		# the default vocabulary contains index -> byte([index])
 		# for index = [0, 255]
 		# this default mapping would be sufficient
 		# to represent any byte stream in tokens
@@ -209,6 +209,9 @@ class BPE_Tokenizer():
 		self.vocab_size = len(self.vocab)
 
 		# the initial set of merges would be an empty list
+		# simple question - why a dict and not a list
+		# since we'd want the order of merges to be stored
+		# order is inherently stored because merges happen in increasing index
 		self.merges = {}
 
 		# the initial pre-tokenizer pattern would be None
@@ -225,7 +228,8 @@ class BPE_Tokenizer():
 		# self.eos_token_id = None # can be taken care of by careful padding
 
 		# keep a cache for cached encoding
-		self.encoder_cache = {a: {} for a in self.tokenization_algorithms}
+		# the cache saved encodings at chunk level (after pre-tokenizer)
+		self.encoder_cache = {algo: {} for algo in self.tokenization_algorithms}
 
 		return
 
@@ -496,6 +500,7 @@ class BPE_Tokenizer():
 		special token is always a string
 		convert the special token to a byte stream
 		add the byte stream to the special tokens dict
+		special tokens are always added after finalizing vocab
 		"""
 
 		self.special_tokens[self.vocab_size] = token.encode(self.encoding)
@@ -560,7 +565,7 @@ class BPE_Tokenizer():
 
 	def apply_pretokenizer_list(self, document_list, return_counts=False):
 		"""
-		document_list is a list of string
+		document_list is a list of strings
 		returns a list of sub-components (flattened to 1 list)
 		"""
 
@@ -760,7 +765,7 @@ class BPE_Tokenizer():
 		num_merges,
 		early_stop = True,
 		verbose = True,
-		use_multipliers = False,
+		use_multipliers = True,
 		single_pass=True,
 	):
 		"""
@@ -788,7 +793,7 @@ class BPE_Tokenizer():
 		document_chunks = [[b for b in chunk] for chunk in document_chunks]
 
 		# get all byte pair frequencies before we start
-		# we're getting the a priori because it works well with cached refactor
+		# we're getting them a priori because it works well with cached refactor
 		byte_pair_frequencies = self.get_pair_frequencies(document_chunks, multipliers=chunk_counts)
 
 		# step 4: iterate at max num_merges times
@@ -909,7 +914,7 @@ class BPE_Tokenizer():
 		clear all encoding cache
 		"""
 
-		self.encoder_cache = {a: {} for a in self.tokenization_algorithms}
+		self.encoder_cache = {algo: {} for algo in self.tokenization_algorithms}
 
 	def convert_token_ids_to_bytes(self, token_ids):
 		"""
