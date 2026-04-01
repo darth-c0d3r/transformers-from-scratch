@@ -1,33 +1,175 @@
+"""
+use this script to test end to end functionalities of transformers
+"""
+
+# ================================================================================ #
+# IMPORTS GO HERE
+
 import sys
 sys.path.insert(1, "../tokenizers/")
 
 import torch
 from bpe_tokenizer import *
 from embeddings import TokenEmbeddings, RotaryPositionEmbeddings
-from transformers_core import *
-from decoder_lm import Decoder_LM
-import matplotlib.pyplot as plt
-import json
 
+# from transformers_core import *
+# from decoder_lm import Decoder_LM
+# import matplotlib.pyplot as plt
+# import json
+
+# ================================================================================ #
+# PARAMETERS GO HERE
+
+# input size
 batch_size = 8
 seq_len = 64
+max_seq_len = 1024
 
+# tokenizer settings
 vocab_size = 32
-model_dim = 16
-hidden_dim = 24
 
+# model settings
+model_dim = 16
+hidden_dim = 32
+
+# attn settings
 num_heads = 12
 head_dim = 8
 
-num_layers = 28
+# model depth
+num_layers = 6
 
+# device and data type
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 dtype = torch.float16
-print(device, dtype)
+
+# what tests to run
+RUN_EMBEDDINGS_TESTS = False
+
+print(f"\ndevice: {device} | dtype: {dtype}\n")
+
+# ================================================================================ #
+# HELPER FUNCTIONS GO HERE
+
+def print_tensor_info(tensor, name):
+	print(f">> {name} | shape = {tensor.shape} | dtype = {tensor.dtype}\n")
+
+# ================================================================================ #
+# TEST TOKEN, POSITION, ROTARY EMBEDDINGS HERE
+
+if RUN_EMBEDDINGS_TESTS:
+
+	print(f"{'=' * 100}")
+	print("TESTING TOKEN EMBEDDINGS, SINUSOIDAL EMBEDDINGS, ROTARY POSITION EMBEDDINFGS\n")
+
+	# get 3 different modules
+
+	token_embeddings_without_sinusoidal = TokenEmbeddings(
+		vocab_size=vocab_size,
+		model_dim=model_dim,
+		posn_embeddings=False,
+		max_seq_len=max_seq_len,
+		device=device,
+		dtype=dtype,
+	)
+
+	token_embeddings_with_sinusoidal = TokenEmbeddings(
+		vocab_size=vocab_size,
+		model_dim=model_dim,
+		posn_embeddings=True,
+		max_seq_len=max_seq_len,
+		device=device,
+		dtype=dtype,
+	)
+
+	rotary_position_embeddings = RotaryPositionEmbeddings(
+		head_dim=head_dim,
+		max_seq_len=max_seq_len,
+		device=device,
+		dtype=dtype,
+	)
+
+	# TESTING TOKEN EMBEDDINGS
+
+	input_ids = torch.randint(low=0, high=vocab_size, size=(batch_size, seq_len))
+	print_tensor_info(input_ids, "input_ids")
+
+	# vanilla case
+	token_embeddings_1_output = token_embeddings_without_sinusoidal(input_ids)
+	token_embeddings_2_output = token_embeddings_with_sinusoidal(input_ids)
+
+	print_tensor_info(token_embeddings_1_output, "token_embeddings_1_output")
+	print_tensor_info(token_embeddings_2_output, "token_embeddings_2_output")
+
+	# shifting case (this will also work for padding)
+	shift = 10
+	input_ids_shifted = input_ids[:, shift:]
+	token_positions_shifted = torch.arange(input_ids_shifted.shape[1]).repeat((input_ids_shifted.shape[0], 1)) + shift
+
+	token_embeddings_1_shifted_output = token_embeddings_without_sinusoidal(input_ids_shifted, token_positions_shifted)
+	token_embeddings_2_shifted_output = token_embeddings_with_sinusoidal(input_ids_shifted, token_positions_shifted)
+
+	print_tensor_info(token_embeddings_1_shifted_output, "token_embeddings_1_shifted_output")
+	print_tensor_info(token_embeddings_2_shifted_output, "token_embeddings_2_shifted_output")
+
+	assert torch.all(token_embeddings_1_shifted_output == token_embeddings_1_output[:, shift:, :])
+	assert torch.all(token_embeddings_2_shifted_output == token_embeddings_2_output[:, shift:, :])
+
+	# kv cache case
+	slice_idx = 12
+	input_ids_sliced = input_ids[:, slice_idx:slice_idx+1]
+	token_positions_sliced = torch.tensor([slice_idx]).repeat((input_ids_sliced.shape[0], 1))
+
+	print_tensor_info(input_ids_sliced, "input_ids_sliced")
+	print_tensor_info(token_positions_sliced, "token_positions_sliced")
+
+	token_embeddings_1_sliced_output = token_embeddings_without_sinusoidal(input_ids_sliced, token_positions_sliced)
+	token_embeddings_2_sliced_output = token_embeddings_with_sinusoidal(input_ids_sliced, token_positions_sliced)
+
+	print_tensor_info(token_embeddings_1_sliced_output, "token_embeddings_1_sliced_output")
+	print_tensor_info(token_embeddings_2_sliced_output, "token_embeddings_2_sliced_output")
+
+	assert torch.all(token_embeddings_1_sliced_output == token_embeddings_1_output[:, slice_idx:slice_idx+1, :])
+	assert torch.all(token_embeddings_2_sliced_output == token_embeddings_2_output[:, slice_idx:slice_idx+1, :])
+
+	# TESTING RoPE EMBEDDINGS
+
+	rotary_input = torch.randn((num_heads, batch_size, seq_len, head_dim), dtype=dtype)
+	print_tensor_info(rotary_input, "rotary_input")
+
+	# vanilla case
+	rotary_output = rotary_position_embeddings(rotary_input)
+	print_tensor_info(rotary_output, "rotary_output")
+
+	# shifting case (this will also work for padding)
+	shift = 10
+	rotary_input_shifted = rotary_input[:, :, shift:, :]
+	token_positions_shifted = torch.arange(rotary_input_shifted.shape[-2]).repeat(input_ids_shifted.shape[:-2] + tuple([1])) + shift
+
+	rotary_output_shifted = rotary_position_embeddings(rotary_input_shifted, token_positions_shifted)
+
+	print_tensor_info(rotary_output_shifted, "rotary_output_shifted")
+
+	assert torch.all(rotary_output_shifted == rotary_output[:, :, shift:, :])
+
+	# kv cache case
+	slice_idx = 12
+	rotary_input_sliced = rotary_input[:, :, slice_idx:slice_idx+1, :]
+	token_positions_sliced = torch.tensor([slice_idx]).repeat(input_ids_sliced.shape[:-2] + tuple([1]))
+
+	rotary_output_sliced = rotary_position_embeddings(rotary_input_sliced, token_positions_sliced)
+
+	print_tensor_info(rotary_output_sliced, "rotary_output_sliced")
+
+	assert torch.all(rotary_output_sliced == rotary_output[:, :, slice_idx:slice_idx+1, :])
+
+	print(f"{'=' * 100}\n")
+
+import sys; sys.exit()
 
 # ========================= #
 
-input_ids = torch.randint(low=0, high=vocab_size, size=(batch_size*seq_len,)).view(batch_size, seq_len)
+input_ids = torch.randint(low=0, high=vocab_size, size=(batch_size, seq_len))
 
 print(f"input_ids.shape = {input_ids.shape} ({input_ids.dtype})")
 

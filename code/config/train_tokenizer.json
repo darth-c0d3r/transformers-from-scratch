@@ -1,17 +1,22 @@
 {
-	"dataset_type": "hgfc",
-	"train_dataset": "roneneldan/TinyStories",
-	"val_dataset": "",
+	// "dataset_type": "hgfc",
+	// "train_dataset": "roneneldan/TinyStories",
+
+	"dataset_type": "tsv",
+	"train_dataset": "../../data/movie_subs/dune_part_1/train.tsv",
+	"val_dataset": "../../data/movie_subs/dune_part_1/val.tsv",
+
 	"train_dataset_size": 20000,
 	"val_dataset_size": 10000,
 
 	"num_merges": 8192,
+	"early_stop": false,
 	"encoding": "utf-8",
 	
-	"output_dir": "../../logs/tiny_stories/tokenizer__20000__8192/",
+	"output_dir": "../../logs/dune_part_1/tokenizer__full/",
 	
-	"pad_token": "<pad>",
-	"start_token": "<start>",
+	"pad_token": "<|pad|>",
+	"start_token": "<|start|>",
 	"other_special_tokens": [],
 	"pretokenizer": "TIKTOKEN",
 }

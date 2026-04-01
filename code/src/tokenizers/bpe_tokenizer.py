@@ -29,6 +29,7 @@ PRETOKENIZER_PATTERNS = {
 def batch_encode(
 	tokenizer,
 	text_list,
+	parallel=False,
 	n_parts=None,
 	apply_pretokenizer=True,
 	skip_special_tokens=False,
@@ -43,7 +44,11 @@ def batch_encode(
 	"""
 
 	# ensure padding direction is correct
-	assert padding in ["left", "right"], padding
+	assert padding in ["left", "right", None], padding
+
+	# give a little warning
+	if padding is None:
+		print(f"> warning: padding is set to None; batch_encode will return unpadded sequences")
 
 	# keep a track of all lengths for padding
 	length_list = []
@@ -52,46 +57,60 @@ def batch_encode(
 
 	for text in text_list:
 
-		encoded_token_ids = parallel_encode(
-			tokenizer,
-			text,
-			n_parts = n_parts,
-			apply_pretokenizer = apply_pretokenizer,
-			skip_special_tokens = skip_special_tokens,
-			concurrent = concurrent,
-			algorithm = algorithm,
-			cache = cache,
-		)
+		if parallel is True:
+			encoded_token_ids = parallel_encode(
+				tokenizer,
+				text,
+				n_parts = n_parts,
+				apply_pretokenizer = apply_pretokenizer,
+				skip_special_tokens = skip_special_tokens,
+				concurrent = concurrent,
+				algorithm = algorithm,
+				cache = cache,
+			)
+		else:
+			encoded_token_ids = _encode_chunk(
+				text,
+				tokenizer,
+				apply_pretokenizer = apply_pretokenizer,
+				skip_special_tokens = skip_special_tokens,
+				concurrent = concurrent,
+				algorithm = algorithm,
+				cache = cache,
+			)
 
 		length_list.append(len(encoded_token_ids))
 		encoded_batch.append(encoded_token_ids)
-		padding_batch.append([1]*len(encoded_token_ids))
+		if padding is not None:
+			padding_batch.append([1]*len(encoded_token_ids))
 
 	# take care of padding here
 	pad_token_id = tokenizer.pad_token_id
-	if pad_token_id is None:
-		pad_token_id = 0
-		print(f"Warning: tokenizer.pad_token_id not set. Using default = 0.")
+	if padding is not None:
+		if pad_token_id is None:
+			pad_token_id = 0
+			print(f"> warning: tokenizer.pad_token_id not set. Using default = 0.")
 
 	# get the max length for padding
 	max_length = max(length_list)
 
 	# iterate over all elements of encoded_batch
-	for i in range(len(encoded_batch)):
+	if padding is not None:
+		for i in range(len(encoded_batch)):
 
-		padding_arm = [pad_token_id] * (max_length - len(encoded_batch[i]))
-		masking_arm = [0] * (max_length - len(encoded_batch[i]))
+			padding_arm = [pad_token_id] * (max_length - len(encoded_batch[i]))
+			masking_arm = [0] * (max_length - len(encoded_batch[i]))
 
-		if padding == "left":
-			encoded_batch[i] = padding_arm + encoded_batch[i]
-			padding_batch[i] = masking_arm + padding_batch[i]
+			if padding == "left":
+				encoded_batch[i] = padding_arm + encoded_batch[i]
+				padding_batch[i] = masking_arm + padding_batch[i]
 
-		else:
-			encoded_batch[i] = encoded_batch[i] + padding_arm
-			padding_batch[i] = padding_batch[i] + masking_arm
+			else:
+				encoded_batch[i] = encoded_batch[i] + padding_arm
+				padding_batch[i] = padding_batch[i] + masking_arm
 
 	# return both encoded batch and padding mask
-	return encoded_batch, padding_batch
+	return encoded_batch, padding_batch if padding is not None else None
 
 def parallel_encode(
 	tokenizer,
@@ -326,7 +345,7 @@ class BPE_Tokenizer():
 		"""
 		this tokenizer iteratively looks for the longest prefix match at byte level
 		we don't need merges for this, only vocab is enough
-		this can definitely be made more efficient with tree search
+		this can definitely be made more efficient with prefix-tree search
 		"""
 
 		# convert the document to a byte-stream and token ids
@@ -403,10 +422,11 @@ class BPE_Tokenizer():
 
 				encoded_token_ids.extend(
 						self.encode(
-						document=chunk, 
+						document=chunk,
+						apply_pretokenizer=apply_pretokenizer,
 						skip_special_tokens=True,
-						algorithm=algorithm,
 						concurrent=concurrent,
+						algorithm=algorithm,
 						cache=cache,
 					)
 				)
@@ -450,6 +470,7 @@ class BPE_Tokenizer():
 							document=chunk,
 							apply_pretokenizer=False, 
 							skip_special_tokens=True,
+							concurrent=False,
 							algorithm=algorithm,
 							cache=cache,
 						)
@@ -507,6 +528,8 @@ class BPE_Tokenizer():
 		self.special_tokens_str2idx[token] = self.vocab_size
 		self.vocab_size += 1
 
+		print(f"added special token {token} to vocab @ index {self.vocab_size-1}.")
+
 		return self.vocab_size - 1
 
 	def get_compression_ratio(self, document, algorithm="base"):
@@ -531,6 +554,7 @@ class BPE_Tokenizer():
 		"""
 
 		self.pretokenizer_pattern = re.compile(regex_pattern)
+		print("pretokenizer pattern set successfully.")
 		return
 
 	def apply_pretokenizer(self, document, return_counts=False):
@@ -546,6 +570,7 @@ class BPE_Tokenizer():
 
 		# if pretokenizer is None, simple convert to list and return
 		if self.pretokenizer_pattern is None:
+			print(f"> warning: pretokenizer not set. returning original document as is.")
 			return ([document], [1] if return_counts else None)
 
 		# if we don't have to return counts
@@ -572,6 +597,7 @@ class BPE_Tokenizer():
 		# if pretokenizer_pattern is None
 		# return the list as as with return counts
 		if self.pretokenizer_pattern is None:
+			print(f"> warning: pretokenizer not set. returning original document as is.")
 			return (document_list, [1] * len(document_list) if return_counts else None)
 
 		# if we don't have to return counts
@@ -763,9 +789,9 @@ class BPE_Tokenizer():
 		self,
 		document_list,
 		num_merges,
-		early_stop = True,
-		verbose = True,
-		use_multipliers = True,
+		early_stop=True,
+		verbose=True,
+		use_multipliers=True,
 		single_pass=True,
 	):
 		"""
@@ -835,7 +861,7 @@ class BPE_Tokenizer():
 			self.vocab[self.vocab_size] = self.vocab[pair[0]] + self.vocab[pair[1]]
 
 			if verbose:
-				print(f"Added to vocab: {self.vocab_size} --> {self.vocab[self.vocab_size]}")
+				print(f"added to vocab: {self.vocab_size} --> {self.vocab[self.vocab_size]}")
 			
 			self.vocab_size += 1
 
@@ -854,6 +880,11 @@ class BPE_Tokenizer():
 		"""
 		this function build the merge forest
 		which is needed for the fast tokenization
+
+		current minor bug: if there are total 2 trees,
+		then can be [0, 2] and not [0, 1]
+
+		this is better implemented using union-merge
 		"""
 
 		# initialize index to tree mapping with None

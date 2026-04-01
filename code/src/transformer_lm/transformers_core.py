@@ -32,8 +32,21 @@ def softmax(input_batch, dim, temperature=1.0):
 	assert dim < len(input_batch.shape)
 	assert -1 * dim <= len(input_batch.shape)
 
-	# temperature can't be 0
-	assert temperature != 0.
+	# # temperature can't be 0
+	# assert temperature != 0.
+
+	# if temperature is 0
+	# softmax behaves like argmax
+	if temperature == 0:
+		print(f"> warning: softmax @ temp 0; returning argmax")
+		
+		# argmax_map = input_batch == input_batch.max(dim).values.unsqueeze(dim)
+		# return argmax_map.to(input_batch.dtype).to(input_batch.device)
+
+		indices = torch.argmax(input_batch, dim=dim, keepdim=True)
+		one_hot = torch.zeros_like(input_batch).scatter_(dim, indices, 1)
+		return one_hot.to(input_batch.dtype).to(input_batch.device)
+
 
 	# logic
 	# subtraction invariance for softmax
@@ -58,6 +71,7 @@ def get_causal_attention_mask(seq_len):
 	return causal attention mask of seq_len
 	input: seq_len, int
 	output: seq_len x seq_len mask
+	returns a lower triangular square matrix
 	"""
 
 	return torch.tril(torch.ones((seq_len, seq_len)))
@@ -118,7 +132,7 @@ class MultiHeadAttention(torch.nn.Module):
 		num_heads = 1,
 		causal = True,
 		device = None, # either None or a torch.device object
-		dtype = None, # either None or a torch.dtype object
+		dtype = torch.float32, # either None or a torch.dtype object
 		init = True,
 	):
 
@@ -137,10 +151,6 @@ class MultiHeadAttention(torch.nn.Module):
 		self.causal = causal
 		self.device = device
 		self.dtype = dtype
-
-		# set default data type as float32
-		if self.dtype is None:
-			self.dtype = torch.float32
 
 		# initialize empty projection matrices
 		self.W_Q = Linear(
@@ -210,9 +220,9 @@ class MultiHeadAttention(torch.nn.Module):
 		projection_v = self.W_V(data_batch)
 
 		# carve up the q k v projections to num heads
-		projection_q = projection_q.contiguous().view((batch_size, seq_len_queries, self.num_heads, self.head_dim)).transpose(1,2)
-		projection_k = projection_k.contiguous().view((batch_size, seq_len_data, self.num_heads, self.head_dim)).transpose(1,2)
-		projection_v = projection_v.contiguous().view((batch_size, seq_len_data, self.num_heads, self.head_dim)).transpose(1,2)
+		projection_q = projection_q.contiguous().view((batch_size, seq_len_queries, self.num_heads, self.head_dim)).transpose(1, 2)
+		projection_k = projection_k.contiguous().view((batch_size, seq_len_data, self.num_heads, self.head_dim)).transpose(1, 2)
+		projection_v = projection_v.contiguous().view((batch_size, seq_len_data, self.num_heads, self.head_dim)).transpose(1, 2)
 		# the projections shape is now batch_size x num_heads x seq_len x head_dim
 
 		# apply rope embeddings if needed now
@@ -282,7 +292,7 @@ class LayerNorm_RMS(torch.nn.Module):
 		model_dim,
 		eps = 1e-5,
 		device = None, # either None or a torch.device object
-		dtype = None, # either None or a torch.dtype object
+		dtype = torch.float32, # either None or a torch.dtype object
 		init = True, # just here for consistency, not actually used
 	):
 
@@ -298,10 +308,6 @@ class LayerNorm_RMS(torch.nn.Module):
 		self.eps = eps
 		self.device = device
 		self.dtype = dtype
-
-		# set default data type as float32
-		if self.dtype is None:
-			self.dtype = torch.float32
 
 		# initialize gains parameter as ones
 		self.G = torch.ones((self.model_dim), dtype=self.dtype, device=self.device)

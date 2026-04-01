@@ -48,7 +48,7 @@ def train_tokenizer(config):
 	tokenizer.train_bpe(
 		train_corpus,
 		num_merges=config["num_merges"],
-		early_stop=False,
+		early_stop=config["early_stop"],
 		verbose=True,
 		use_multipliers=True,
 		single_pass=True
@@ -66,7 +66,7 @@ def train_tokenizer(config):
 		tokenizer.start_token_id = start_token_id
 		print(f"inserted start token {config['start_token']} @ {start_token_id}\n")
 
-	# add all other speacial tokens
+	# add all other special tokens
 	if config["other_special_tokens"] is not None:
 		for spcl_tok in config["other_special_tokens"]:
 			tok_id = tokenizer.insert_special_token(spcl_tok)
@@ -107,9 +107,10 @@ if __name__ == '__main__':
 	parser.add_argument("--config_filename", type=str, required=True, help="config filename")
 	args = parser.parse_args()
 
-	# read the config
+	# sanity test
 	assert Path(args.config_filename).is_file()
 	
+	# read the config file
 	with open(args.config_filename, "r") as f:
 		config = json5.load(f)
 

@@ -60,12 +60,33 @@ A from-scratch implementation of the modern LLM stack. Covers BPE tokenizer trai
 - means that we have been taking large steps but going back and forth
 - we need to take smaller steps
 
+# Commands
+
+```bash
+# ===== TRAINING THE TOKENIZER ===== #
+
+# for sanity tests
+cd ./code/src/tokenizers/
+python test.py
+
+# for training
+cd ./code/src/
+python train_tokenizer.py --config_filename ../config/train_tokenizer.json
+
+# ===== TRAINING THE TRANSFORMER MODEL ===== #
+
+
+
+```
+
+
 # To-Do
 
 Implement all Tokenizers
 	~~ character-based tokenizer [ditch]
 	-- byte-based tokenizer
 	~~ word-based tokenizer [ditch]
+	- sentence piece tokenizer
 	-- bpe tokenizer
 		-- add provision for special rules
 			-- special tokens
@@ -94,6 +115,10 @@ E2E Transformers
 	- Understand Initializations
 	-- Multiple Non Linearities
 	- Multiple Position Embeddings
+		-- RoPE
+		-- Sinusoidal
+		-- NoPE
+		- make fwd pass compatible
 	- Weight tying and untying
 	- Attentions: MHA, MQA, GQA, LMHA, Sparse Attn, etc.
 	- .generate

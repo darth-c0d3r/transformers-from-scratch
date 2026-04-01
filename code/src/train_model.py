@@ -53,6 +53,8 @@ def evaluate(model, tokenizer, val_dataloader, loss_fxn, eval_fxn):
 		input_token_ids = input_token_ids[:, :-1]
 		padding_mask = padding_mask[:, :-1]
 
+		# we should also pass token_positions for posn embeddings
+
 		# now, do a fwd pass from the model
 		_, logits = model(input_token_ids, padding_mask)
 
@@ -171,6 +173,7 @@ def train_model(config):
 			desc=f"epoch {epoch+1}/{config['num_epochs']}",
 			total=len(train_dataloader)
 		)
+
 		for idx, batch in pbar:
 
 			# ensure the model has train flag enabled
@@ -192,6 +195,8 @@ def train_model(config):
 			input_token_ids = input_token_ids[:, :-1]
 			padding_mask = padding_mask[:, :-1]
 
+			# we should also pass token_positions for posn embeddings
+
 			# now, do a fwd pass from the model
 			_, logits = model(input_token_ids, padding_mask)
 
@@ -201,7 +206,7 @@ def train_model(config):
 			# do a backward pass
 			loss.backward()
 
-			# make it reflext in progress bar
+			# make it reflect in progress bar
 			pbar.set_postfix(loss=f"{loss.cpu().item():.4f}")
 
 			# see if we're ready for weight update

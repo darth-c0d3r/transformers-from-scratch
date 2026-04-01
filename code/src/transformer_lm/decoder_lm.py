@@ -117,6 +117,7 @@ class Decoder_LM(torch.nn.Module):
 		self,
 		input_ids,
 		padding_mask = None,
+		token_positions = None,
 	):
 
 		"""
