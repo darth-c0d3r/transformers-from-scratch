@@ -76,6 +76,88 @@ def get_causal_attention_mask(seq_len):
 
 	return torch.tril(torch.ones((seq_len, seq_len)))
 
+def get_token_positions_from_padding_mask(padding_mask):
+	"""
+	token positions are needed for position embeddings
+	and this is especially useful for sinusoidal embeddings
+	optionally, this can be also used for RoPE
+	but it is not necessary
+
+	if there is padding from the right
+	it doesn't matter because they don't impact later layers
+	we'll still set them to 0
+
+	input: attn_mask --> batch_size x seq_len_enc
+	output: token_positions --> batch_size x seq_len_enc
+	
+	eg -
+	
+	padding_mask
+	0 0 0 0 1 1 1 0 0
+	0 1 1 1 1 1 1 1 0
+	0 0 0 1 1 1 1 0 0
+
+	token_positions
+	0 0 0 0 0 1 2 0 0
+	0 0 1 2 3 4 5 6 0
+	0 0 0 0 1 2 3 0 0
+
+	hgfc implements this using cumulative sum over padding mask
+	which is an awesome and slick implementation
+	"""
+
+	# get the batch size and seq len
+	batch_size, seq_len_data = padding_mask.shape
+
+	# step 1 - get a normal 0 indexed tensor of positions
+	token_positions = torch.arange(seq_len_data).repeat((batch_size, 1)).to(padding_mask.device)
+
+	# step 2 - fill the masked elements with a high number
+	token_positions.masked_fill_(padding_mask == 0, seq_len_data)
+
+	# step 3 - subtract the smallest number along dim = 1
+	token_positions -= token_positions.min(dim=1).values.unsqueeze(dim=1)
+
+	# step 4 - fill the masked elements with 0
+	token_positions.masked_fill_(padding_mask == 0, 0)
+
+	return token_positions
+
+def merge_causal_and_padding_masks(padding_mask, seq_len_queries, causal, device):
+
+	# build the perfect attn mask which is
+	# a combination of causal mask and padding mask
+	# causal mask shape = seq_len_queries x seq_len_queries (only applicable for self attn)
+	# padding mask shape = batch_size x seq_len_data
+	# attn mask shape = batch_size x 1 x seq_len_queries x seq_len_data
+
+	attn_mask = None
+
+	# if padding mask isn't None
+	# convert it into a good-er shape
+	# padding_mask.shape = batch_size x 1 x 1 x seq_len_data
+	# this as is would also work
+	if padding_mask is not None:
+		attn_mask = padding_mask.unsqueeze(1).unsqueeze(1)
+
+	if causal is True:
+		causal_mask = get_causal_attention_mask(seq_len_queries).to(device)
+
+		# merge causal mask and padding mask here
+		if padding_mask is not None:
+			causal_mask = causal_mask.unsqueeze(0).unsqueeze(0)
+			attn_mask = attn_mask * causal_mask
+
+			# very subtle:
+			# ensure that the padding tokens can still attend to themselves
+			self_mask = torch.eye(seq_len_queries).to(device)
+			attn_mask = torch.max(attn_mask, self_mask)
+
+		else: # causal mask to be used as attn mask
+			attn_mask = causal_mask
+
+	return attn_mask
+
 def scaled_dot_product_attention(
 	queries,
 	keys,
@@ -101,7 +183,7 @@ def scaled_dot_product_attention(
 	# to be effectively - inf
 	if attn_mask is not None:
 		# similarity += (attn_mask-1)*1e20
-		similarity = similarity.masked_fill(attn_mask == 0, float('-inf'))
+		similarity.masked_fill_(attn_mask == 0, float('-inf'))
 
 	# similarity.shape = ... x seq_len_queries x seq_len_data
 	# we want to compute softmax over keys
@@ -197,17 +279,21 @@ class MultiHeadAttention(torch.nn.Module):
 		data_batch = None, # optional, fall back to queries batch
 		rope_module = None, # optional
 		padding_mask = None, # optional, can be provided, default = causal
+		token_positions_queries = None, # optional, rope will handle empty
+		token_positions_data = None, # optional, rope will handle empty
 	):
 
 		"""
 		forward pass for attenion module
 		queries_batch.shape = batch_size x seq_len_queries x model_dim
 		data_batch.shape = batch_size x seq_len_data x model_dim
+		token_positions.shape = batch_size x seq_len
 		"""
 
 		# handle the self attention set up here
 		if data_batch is None:
 			data_batch = queries_batch
+			token_positions_data = token_positions_queries
 
 		# get the basic parameters in
 		batch_size = queries_batch.shape[0]
@@ -228,39 +314,24 @@ class MultiHeadAttention(torch.nn.Module):
 		# apply rope embeddings if needed now
 		# this is applied only to query and key vectors
 		if rope_module is not None:
-			projection_q = rope_module(projection_q)
-			projection_k = rope_module(projection_k)
+			# for rope, we need to modify shapes of token_positions
+			
+			if token_positions_queries is not None:
+				token_positions_queries = token_positions_queries.unsqueeze(1).repeat((1, self.num_heads, 1))
 
-		# build the perfect attn mask which is
-		# a combination of causal mask and padding mask
-		# causal mask shape = seq_len_queries x seq_len_queries (only applicable for self attn)
-		# padding mask shape = batch_size x seq_len_data
-		# attn mask shape = batch_size x 1 x seq_len_queries x seq_len_data
+			if token_positions_data is not None:
+				token_positions_data = token_positions_data.unsqueeze(1).repeat((1, self.num_heads, 1))
 
-		attn_mask = None
+			projection_q = rope_module(projection_q, token_positions_queries)
+			projection_k = rope_module(projection_k, token_positions_data)
 
-		# if padding mask isn't None
-		# convert it into a good-er shape
-		# padding_mask.shape = batch_size x 1 x 1 x seq_len_data
-		# this as is would also work
-		if padding_mask is not None:
-			attn_mask = padding_mask.unsqueeze(1).unsqueeze(1)
-
-		if self.causal is True:
-			causal_mask = get_causal_attention_mask(seq_len_queries).to(queries_batch.device)
-
-			# merge causal mask and padding mask here
-			if padding_mask is not None:
-				causal_mask = causal_mask.unsqueeze(0).unsqueeze(0)
-				attn_mask = attn_mask * causal_mask
-
-				# very subtle:
-				# ensure that the padding tokens can still attend to themselves
-				self_mask = torch.eye(seq_len_queries).to(queries_batch.device)
-				attn_mask = torch.max(attn_mask, self_mask)
-
-			else: # causal mask to be used as attn mask
-				attn_mask = causal_mask
+		# the final attn mask is a combination of causal mask and padding mask
+		attn_mask = merge_causal_and_padding_masks(
+				padding_mask = padding_mask,
+				seq_len_queries = seq_len_queries,
+				causal = self.causal,
+				device = queries_batch.device,
+			)
 
 		# get the output after applying sdpa function
 		attn_weights, output_batch = scaled_dot_product_attention(
@@ -591,6 +662,7 @@ class DecoderOnlyTransformerBlock(torch.nn.Module):
 		input_batch, # torch.tensor
 		rope_module = None,
 		padding_mask = None,
+		token_positions = None,
 	):
 
 		"""
@@ -604,6 +676,7 @@ class DecoderOnlyTransformerBlock(torch.nn.Module):
 			layer_norm_1_output,
 			rope_module = rope_module,
 			padding_mask = padding_mask,
+			token_positions_queries = token_positions,
 		)
 
 		# step 2: apply the residual connection
@@ -618,4 +691,3 @@ class DecoderOnlyTransformerBlock(torch.nn.Module):
 
 		# return self attn weights and ffn output
 		return self_attn_weights, ffn_output
-

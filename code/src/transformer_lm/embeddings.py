@@ -102,14 +102,18 @@ class RotaryPositionEmbeddings(torch.nn.Module):
 		then also we'll need token_positions
 		if token_positions is not supplied
 		then assume it is 0 to L-1
-		"""
 
-		# input batch should ideally be batch_size x seq_len x head_dim
-		# but there could be cases where it is just batch_size x head_dim
-		# especially when applying only to last token
-		# so we'll build our function assuming that it is ... x head_dim
-		# and we'll also assume that token_positions will be of the shape ...
-		# token_positions won't have the dimension head_dim
+		input batch should ideally be batch_size x seq_len x head_dim
+		but there could be cases where it is just batch_size x head_dim
+		especially when applying only to last token
+		so we'll build our function assuming that it is ... x head_dim
+		and we'll also assume that token_positions will be of the shape ...
+		token_positions won't have the dimension head_dim
+		
+		if input_batch.shape = batch_size x num_heads x seq_len x head_dim
+		token_positions shape should be batch_size x num_heads x seq_len
+
+		"""
 
 		# handle the case when there's only 2 dimensions provided
 		squeeze_later = False
@@ -127,8 +131,8 @@ class RotaryPositionEmbeddings(torch.nn.Module):
 		token_positions = token_positions.to(input_batch.device).long()
 		
 		# at this point
-		# input_batch.shape = ... x batch_size x seq_len x head_dim
-		# token_positions.shape = ... x batch_size x seq_len
+		# input_batch.shape = ... x seq_len x head_dim
+		# token_positions.shape = ... x seq_len
 
 		# get the cosine and sine meshes
 		selected_cosine_mesh = self.cosine_mesh[token_positions]
@@ -371,6 +375,7 @@ class TokenEmbeddings(torch.nn.Module):
 
 		"""
 		input: batch_size x sequence_length
+		token_positions: batch_size x sequence_length
 		output: batch_size x sequence_length x model_dim
 
 		in case the input is just batch size (say, when only using for final token in kv cache enabled)
@@ -381,6 +386,7 @@ class TokenEmbeddings(torch.nn.Module):
 		# handle the case when there's only 1 dimension provided
 		squeeze_later = False
 		if len(token_ids.shape) == 1: # only 1 dimensions, batch_size
+			print(f"> warning: squeeze later functionality is unstable; ideally don't use it")
 			token_ids = token_ids.unsqueeze(1)
 			if token_positions is not None:
 				token_positions = token_positions.unsqueeze(1)

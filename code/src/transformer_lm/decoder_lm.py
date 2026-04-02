@@ -12,7 +12,7 @@ import torch
 
 from .embeddings import TokenEmbeddings, RotaryPositionEmbeddings
 from .transformers_core import DecoderOnlyTransformerBlock, LayerNorm_RMS, Linear
-from .transformers_core import softmax
+from .transformers_core import softmax, get_token_positions_from_padding_mask
 
 class Decoder_LM(torch.nn.Module):
 	"""
@@ -34,6 +34,7 @@ class Decoder_LM(torch.nn.Module):
 		num_heads,
 		num_layers,
 		max_seq_len,
+		posn_embeddings,
 		device = None, # either None or a torch.device object
 		dtype = None, # either None or a torch.dtype object
 		init = True,
@@ -54,6 +55,7 @@ class Decoder_LM(torch.nn.Module):
 		self.num_heads = num_heads
 		self.num_layers = num_layers
 		self.max_seq_len = max_seq_len
+		self.posn_embeddings = posn_embeddings
 		self.device = device
 		self.dtype = dtype
 
@@ -61,23 +63,29 @@ class Decoder_LM(torch.nn.Module):
 		if self.dtype is None:
 			self.dtype = torch.float32
 
+		# make sure posn embeddings are supported
+		assert self.posn_embeddings in ["sinusoidal", "rope", "nope"]
+
 		# initialize the token embeddings module here
 		self.token_embeddings_module = TokenEmbeddings(
 			vocab_size = self.vocab_size,
 			model_dim = self.model_dim,
+			posn_embeddings = self.posn_embeddings == "sinusoidal",
 			device = self.device,
 			dtype = self.dtype,
 			init = init,
 		)
 
 		# add rope embeddings
-		self.rope_module = RotaryPositionEmbeddings(
-			head_dim = self.head_dim,
-			max_seq_len = self.max_seq_len,
-			device = self.device,
-			dtype = self.dtype,
-			init = init,
-		)
+		self.rope_module = None
+		if self.posn_embeddings == "rope":
+			self.rope_module = RotaryPositionEmbeddings(
+				head_dim = self.head_dim,
+				max_seq_len = self.max_seq_len,
+				device = self.device,
+				dtype = self.dtype,
+				init = init,
+			)
 
 		# add n decoder only layers here
 		self.model = torch.nn.ModuleList([
@@ -134,8 +142,13 @@ class Decoder_LM(torch.nn.Module):
 		batch_size = input_ids.shape[0]
 		seq_len = input_ids.shape[1]
 
+		# if token_positions is None (which unless KV cache it should be)
+		# then generate token positions based on padding mask
+		if token_positions is None and padding_mask is not None:
+			token_positions = get_token_positions_from_padding_mask(padding_mask)
+
 		# step 1: token embeddings module
-		output_tensor = self.token_embeddings_module(input_ids)
+		output_tensor = self.token_embeddings_module(input_ids, token_positions)
 		# output_tensor : batch_size x sequence_length x model_dim
 
 		# step 2: iterate over all decoder only layers
@@ -145,6 +158,7 @@ class Decoder_LM(torch.nn.Module):
 				output_tensor,
 				rope_module = self.rope_module,
 				padding_mask = padding_mask,
+				token_positions = token_positions,
 			)
 			attn_weights_list.append(attn_weights)
 

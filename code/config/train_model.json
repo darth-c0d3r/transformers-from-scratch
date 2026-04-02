@@ -22,6 +22,7 @@
 		"num_heads": 16,
 		"num_layers": 4,
 		"max_seq_len": 4096,
+		"posn_embeddings": "rope", // ["rope", "sinusoidal", "nope"]
 	},
 	"dtype": "torch.float32",
 

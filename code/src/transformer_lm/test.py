@@ -12,7 +12,7 @@ import torch
 from bpe_tokenizer import *
 from embeddings import TokenEmbeddings, RotaryPositionEmbeddings
 
-# from transformers_core import *
+from transformers_core import *
 # from decoder_lm import Decoder_LM
 # import matplotlib.pyplot as plt
 # import json
@@ -44,7 +44,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 dtype = torch.float16
 
 # what tests to run
-RUN_EMBEDDINGS_TESTS = False
+RUN_EMBEDDINGS_TESTS = True
 
 print(f"\ndevice: {device} | dtype: {dtype}\n")
 
@@ -60,7 +60,7 @@ def print_tensor_info(tensor, name):
 if RUN_EMBEDDINGS_TESTS:
 
 	print(f"{'=' * 100}")
-	print("TESTING TOKEN EMBEDDINGS, SINUSOIDAL EMBEDDINGS, ROTARY POSITION EMBEDDINFGS\n")
+	print("TESTING TOKEN EMBEDDINGS, SINUSOIDAL EMBEDDINGS, ROTARY POSITION EMBEDDINGS\n")
 
 	# get 3 different modules
 
@@ -106,6 +106,9 @@ if RUN_EMBEDDINGS_TESTS:
 	input_ids_shifted = input_ids[:, shift:]
 	token_positions_shifted = torch.arange(input_ids_shifted.shape[1]).repeat((input_ids_shifted.shape[0], 1)) + shift
 
+	print_tensor_info(input_ids_shifted, "input_ids_shifted")
+	print_tensor_info(token_positions_shifted, "token_positions_shifted")
+
 	token_embeddings_1_shifted_output = token_embeddings_without_sinusoidal(input_ids_shifted, token_positions_shifted)
 	token_embeddings_2_shifted_output = token_embeddings_with_sinusoidal(input_ids_shifted, token_positions_shifted)
 
@@ -133,8 +136,9 @@ if RUN_EMBEDDINGS_TESTS:
 	assert torch.all(token_embeddings_2_sliced_output == token_embeddings_2_output[:, slice_idx:slice_idx+1, :])
 
 	# TESTING RoPE EMBEDDINGS
+	print(f"{'='*20}\n")
 
-	rotary_input = torch.randn((num_heads, batch_size, seq_len, head_dim), dtype=dtype)
+	rotary_input = torch.randn((batch_size, num_heads, seq_len, head_dim), dtype=dtype)
 	print_tensor_info(rotary_input, "rotary_input")
 
 	# vanilla case
@@ -144,7 +148,10 @@ if RUN_EMBEDDINGS_TESTS:
 	# shifting case (this will also work for padding)
 	shift = 10
 	rotary_input_shifted = rotary_input[:, :, shift:, :]
-	token_positions_shifted = torch.arange(rotary_input_shifted.shape[-2]).repeat(input_ids_shifted.shape[:-2] + tuple([1])) + shift
+	token_positions_shifted = torch.arange(rotary_input_shifted.shape[-2]).repeat(rotary_input_shifted.shape[:-2] + tuple([1])) + shift
+
+	print_tensor_info(rotary_input_shifted, "rotary_input_shifted")
+	print_tensor_info(token_positions_shifted, "token_positions_shifted")
 
 	rotary_output_shifted = rotary_position_embeddings(rotary_input_shifted, token_positions_shifted)
 
@@ -155,13 +162,61 @@ if RUN_EMBEDDINGS_TESTS:
 	# kv cache case
 	slice_idx = 12
 	rotary_input_sliced = rotary_input[:, :, slice_idx:slice_idx+1, :]
-	token_positions_sliced = torch.tensor([slice_idx]).repeat(input_ids_sliced.shape[:-2] + tuple([1]))
+	token_positions_sliced = torch.tensor([slice_idx]).repeat(rotary_input_sliced.shape[:-2] + tuple([1]))
+
+	print_tensor_info(rotary_input_sliced, "rotary_input_sliced")
+	print_tensor_info(token_positions_sliced, "token_positions_sliced")
 
 	rotary_output_sliced = rotary_position_embeddings(rotary_input_sliced, token_positions_sliced)
 
 	print_tensor_info(rotary_output_sliced, "rotary_output_sliced")
 
 	assert torch.all(rotary_output_sliced == rotary_output[:, :, slice_idx:slice_idx+1, :])
+
+	print(f"{'='*20}\n")
+	# TESTING WITH PADDING MASK (Shifting Case)
+
+	shift = 13
+
+	input_ids = torch.randint(low=0, high=vocab_size, size=(batch_size, seq_len))
+	print_tensor_info(input_ids, "input_ids")
+
+	input_ids_shifted = input_ids[:, shift:]
+	print_tensor_info(input_ids_shifted, "input_ids_shifted")
+
+	padding_mask = torch.ones(input_ids.shape)
+	padding_mask[:, :shift] = 0
+	print_tensor_info(padding_mask, "padding_mask")
+
+	token_positions_padding = get_token_positions_from_padding_mask(padding_mask)
+	print_tensor_info(token_positions_padding, "token_positions_padding")
+
+	token_embeddings_1_output = token_embeddings_with_sinusoidal(input_ids_shifted)
+	print_tensor_info(token_embeddings_1_output, "token_embeddings_1_output")
+
+	token_embeddings_2_output = token_embeddings_with_sinusoidal(input_ids, token_positions_padding)
+	print_tensor_info(token_embeddings_2_output, "token_embeddings_2_output")
+
+	assert torch.all(token_embeddings_1_output == token_embeddings_2_output[:, shift:])
+
+	print(f"{'='*20}\n")
+	
+	rotary_input = torch.randn((batch_size, num_heads, seq_len, head_dim), dtype=dtype)
+	print_tensor_info(rotary_input, "rotary_input")
+
+	rotary_input_shifted = rotary_input[:, :, shift:, :]
+	print_tensor_info(rotary_input_shifted, "rotary_input_shifted")
+
+	token_positions_padding = token_positions_padding.unsqueeze(1).repeat((1, num_heads, 1))
+	print_tensor_info(token_positions_padding, "token_positions_padding")
+
+	rotary_output_shifted = rotary_position_embeddings(rotary_input_shifted)
+	print_tensor_info(rotary_output_shifted, "rotary_output_shifted")
+
+	rotary_output_padding = rotary_position_embeddings(rotary_input, token_positions_padding)
+	print_tensor_info(rotary_output_padding, "rotary_output_padding")
+
+	assert torch.all(rotary_output_shifted == rotary_output_padding[:, :, shift:, :])
 
 	print(f"{'=' * 100}\n")
 
