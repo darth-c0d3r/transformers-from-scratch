@@ -6,16 +6,19 @@ use this script to test end to end functionalities of transformers
 # IMPORTS GO HERE
 
 import sys
+import os
+
 sys.path.insert(1, "../tokenizers/")
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 import torch
 from bpe_tokenizer import *
 from embeddings import TokenEmbeddings, RotaryPositionEmbeddings
 
 from transformers_core import *
-# from decoder_lm import Decoder_LM
-# import matplotlib.pyplot as plt
-# import json
+from decoder_lm import Decoder_LM
+import matplotlib.pyplot as plt
+import json
 
 # ================================================================================ #
 # PARAMETERS GO HERE
@@ -44,7 +47,8 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 dtype = torch.float16
 
 # what tests to run
-RUN_EMBEDDINGS_TESTS = True
+RUN_EMBEDDINGS_TESTS = False
+RUN_COMPONENT_TESTS = True
 
 print(f"\ndevice: {device} | dtype: {dtype}\n")
 
@@ -220,142 +224,170 @@ if RUN_EMBEDDINGS_TESTS:
 
 	print(f"{'=' * 100}\n")
 
+# ========================= #
+
+if RUN_COMPONENT_TESTS:
+
+	print(f"{'=' * 100}")
+	print("RUNNING COMPONENT LEVEL TESTS\n")
+
+	# ========================= #
+
+	input_ids = torch.randint(low=0, high=vocab_size, size=(batch_size, seq_len))
+	print_tensor_info(input_ids, "input_ids")
+
+	padding_mask = torch.ones((batch_size, seq_len))
+	for pad in range(batch_size):
+		padding_mask[pad, :pad+1] = 0
+		padding_mask[pad, -(pad+1):] = 0
+	print_tensor_info(padding_mask, "padding_mask")
+
+	token_positions = get_token_positions_from_padding_mask(padding_mask)
+	print_tensor_info(token_positions, "token_positions")
+
+	# ========================= #
+
+	token_embeddings_module = TokenEmbeddings(
+		vocab_size = vocab_size,
+		model_dim = model_dim,
+		posn_embeddings = True,
+		max_seq_len = max_seq_len,
+		device = device,
+		dtype = dtype,
+	)
+
+	token_embeddings_output = token_embeddings_module(input_ids, token_positions)
+	print_tensor_info(token_embeddings_output, "token_embeddings_output")
+
+	# ========================= #
+
+	linear_module_1 = Linear(model_dim, hidden_dim, False, device, dtype)
+	linear_module_2 = Linear(hidden_dim, model_dim, True, device, dtype)
+
+	linear_output_1 = linear_module_1(token_embeddings_output)
+	linear_output_2 = linear_module_2(linear_output_1)
+
+	print_tensor_info(linear_output_1, "linear_output_1")
+	print_tensor_info(linear_output_2, "linear_output_2")
+
+	# ========================= #
+
+	relu_output = activation_ReLU(linear_output_2)
+
+	print_tensor_info(relu_output, "relu_output")
+
+	# ========================= #
+
+	ffn_module = FFN_with_SwiGLU(model_dim, hidden_dim, device, dtype)
+
+	ffn_output = ffn_module(token_embeddings_output)
+
+	print_tensor_info(ffn_output, "ffn_module")
+
+	# ========================= #
+
+	layer_norm_module = LayerNorm_RMS(model_dim, 1e-5, device, dtype)
+
+	layer_norm_output = layer_norm_module(ffn_output)
+
+	print_tensor_info(layer_norm_output, "layer_norm_output")
+
+	# ========================= #
+
+	softmax_output = softmax(layer_norm_output, -1)
+
+	print_tensor_info(softmax_output, "softmax_output")
+
+	# ========================= #
+
+	rope_module = RotaryPositionEmbeddings(model_dim, max_seq_len, 10000, device, dtype)
+
+	rope_output = rope_module(ffn_output, token_positions)
+
+	print_tensor_info(rope_output, "rope_output (without MHA)")
+
+	# ========================= #
+
+	keys = torch.randn((batch_size, num_heads, seq_len, head_dim), dtype=dtype)
+	values = torch.randn((batch_size, num_heads, seq_len, head_dim), dtype=dtype)
+	queries = torch.randn((batch_size, num_heads, seq_len, head_dim), dtype=dtype)
+
+	attn_mask = merge_causal_and_padding_masks(
+				padding_mask=padding_mask,
+				seq_len_queries=seq_len,
+				causal=True,
+				device=device,
+			)
+
+	print_tensor_info(attn_mask, "attn_mask")
+
+	attn_weights, attn_output = scaled_dot_product_attention(queries, keys, values, attn_mask)
+
+	print_tensor_info(attn_weights, "attn_weights")
+	print_tensor_info(attn_output, "attn_output")
+
+	# ========================= #
+
+	rope_module_mha = RotaryPositionEmbeddings(head_dim, max_seq_len, 10000, device, dtype)
+	mha_module = MultiHeadAttention(model_dim, head_dim, num_heads, True, device, dtype)
+
+	_, mha_module_wo_rope = mha_module(ffn_output, rope_module=None)
+	print_tensor_info(mha_module_wo_rope, "mha_module_wo_rope")
+
+	_, mha_module_w_rope = mha_module(ffn_output, rope_module=rope_module_mha, padding_mask=padding_mask, token_positions_queries=token_positions)
+	print_tensor_info(mha_module_w_rope, "mha_module_w_rope")
+
+	# ========================= #
+
+	decoder_block = DecoderOnlyTransformerBlock(model_dim, hidden_dim, head_dim, num_heads, device, dtype)
+
+	decoder_attn_weights, decoder_block_output = decoder_block(token_embeddings_output, rope_module=rope_module_mha, padding_mask=padding_mask, token_positions=token_positions)
+
+	print_tensor_info(decoder_attn_weights, "decoder_attn_weights")
+	print_tensor_info(decoder_block_output, "decoder_block_output")
+
+	# ========================= #	
+
+	decoder_lm = Decoder_LM(
+		vocab_size = vocab_size,
+		model_dim = model_dim,
+		hidden_dim = hidden_dim,
+		head_dim = hidden_dim,
+		num_heads = num_heads,
+		num_layers = num_layers,
+		max_seq_len = max_seq_len,
+		posn_embeddings = "nope",
+		device = device,
+		dtype = dtype,
+	)
+
+	attn_weights_list, decoder_lm_output = decoder_lm(input_ids)
+
+	print_tensor_info(attn_weights_list, "attn_weights_list")
+	print_tensor_info(decoder_lm_output, "decoder_lm_output")
+
+	attn_weights_list, decoder_lm_output = decoder_lm(input_ids, padding_mask)
+
+	print_tensor_info(attn_weights_list, "attn_weights_list")
+	print_tensor_info(decoder_lm_output, "decoder_lm_output")
+
+	# ========================= #
+
+	print()
+	print(decoder_lm)
+	print()
+	param_counts = {n: p.numel() for (n, p) in decoder_lm.named_parameters()}
+	# print(json.dumps(param_counts, indent=4))
+	print(f"total parameters = {sum(param_counts.values())}")
+
+
+	print(f"{'=' * 100}")
+
+	import sys; sys.exit()
+
+# ========================= #
+
 import sys; sys.exit()
-
-# ========================= #
-
-input_ids = torch.randint(low=0, high=vocab_size, size=(batch_size, seq_len))
-
-print(f"input_ids.shape = {input_ids.shape} ({input_ids.dtype})")
-
-# ========================= #
-
-token_embeddings_module = TokenEmbeddings(
-	vocab_size = vocab_size,
-	model_dim = model_dim,
-	device = device,
-	dtype = dtype,
-)
-
-token_embeddings_output = token_embeddings_module(input_ids)
-
-print(f"token_embeddings_output.shape = {token_embeddings_output.shape} ({token_embeddings_output.dtype})")
-
-# ========================= #
-
-linear_module_1 = Linear(model_dim, hidden_dim, False, device, dtype)
-linear_module_2 = Linear(hidden_dim, model_dim, True, device, dtype)
-
-linear_output_1 = linear_module_1(token_embeddings_output)
-linear_output_2 = linear_module_2(linear_output_1)
-
-print(f"linear_output_1.shape = {linear_output_1.shape} ({linear_output_1.dtype})")
-print(f"linear_output_2.shape = {linear_output_2.shape} ({linear_output_2.dtype})")
-
-# ========================= #
-
-relu_output = activation_ReLU(linear_output_2)
-
-print(f"relu_output.shape = {relu_output.shape} ({relu_output.dtype})")
-
-# ========================= #
-
-ffn_module = FFN_with_SwiGLU(model_dim, hidden_dim, device, dtype)
-
-ffn_output = ffn_module(token_embeddings_output)
-
-print(f"ffn_output.shape = {ffn_output.shape} ({ffn_output.dtype})")
-
-# ========================= #
-
-layer_norm_module = LayerNorm_RMS(model_dim, 1e-5, device, dtype)
-
-layer_norm_output = layer_norm_module(ffn_output)
-
-print(f"layer_norm_module.shape = {layer_norm_output.shape} ({layer_norm_output.dtype})")
-
-# ========================= #
-
-softmax_output = softmax(layer_norm_output, -1)
-
-print(f"softmax_output.shape = {softmax_output.shape} ({softmax_output.dtype})")
-
-# ========================= #
-
-rope_module = RotaryPositionEmbeddings(model_dim, seq_len*16, 10000, device, dtype)
-
-rope_output = rope_module(ffn_output)
-
-print(f"rope_output.shape = {rope_output.shape} ({rope_output.dtype})")
-
-rope_output = rope_module(ffn_output.repeat((4,3,2,1,1,1)))
-
-print(f"rope_output.shape = {rope_output.shape} ({rope_output.dtype})")
-
-# ========================= #
-
-keys = torch.randn((12, 16, 32, 64)).to(dtype)
-values = torch.randn((12, 16, 32, 128)).to(dtype)
-queries = torch.randn((12, 16, 4, 64)).to(dtype)
-
-attn_weights, attn_output = scaled_dot_product_attention(queries, keys, values)
-
-print(f"attn_weights.shape = {attn_weights.shape} ({attn_weights.dtype})")
-print(f"attn_output.shape = {attn_output.shape} ({attn_output.dtype})")
-
-# ========================= #
-
-rope_module_mha = RotaryPositionEmbeddings(head_dim, seq_len*16, 10000, device, dtype)
-mha_module = MultiHeadAttention(model_dim, head_dim, num_heads, True, device, dtype)
-
-_, mha_module_wo_rope = mha_module(ffn_output, rope_module=None)
-print(f"mha_module_wo_rope.shape = {mha_module_wo_rope.shape} ({mha_module_wo_rope.dtype})")
-
-_, mha_module_w_rope = mha_module(ffn_output, rope_module=rope_module_mha)
-print(f"mha_module_w_rope.shape = {mha_module_w_rope.shape} ({mha_module_w_rope.dtype})")
-
-# ========================= #
-
-decoder_block = DecoderOnlyTransformerBlock(model_dim, hidden_dim, head_dim, num_heads, device, dtype)
-
-decoder_attn_weights, decoder_block_output = decoder_block(token_embeddings_output, rope_module=rope_module_mha)
-
-print(f"decoder_block_output.shape = {decoder_block_output.shape} ({decoder_block_output.dtype})")
-print(f"decoder_attn_weights.shape = {decoder_attn_weights.shape} ({decoder_attn_weights.dtype})")
-
-# ========================= #
-
-decoder_lm = Decoder_LM(
-	vocab_size = vocab_size,
-	model_dim = model_dim,
-	hidden_dim = hidden_dim,
-	head_dim = hidden_dim,
-	num_heads = num_heads,
-	num_layers = num_layers,
-	max_seq_len = seq_len * 16,
-	device = device,
-	dtype = dtype,
-)
-
-attn_weights_list, decoder_lm_output = decoder_lm(input_ids)
-
-print(f"decoder_lm_output.shape = {decoder_lm_output.shape} ({decoder_lm_output.dtype})")
-print(f"attn_weights_list.shape = {attn_weights_list.shape} ({attn_weights_list.dtype})")
-
-padding_mask = (torch.randn((batch_size, seq_len)) > 0).to(torch.int)
-attn_weights_list, decoder_lm_output = decoder_lm(input_ids, padding_mask)
-
-print(f"decoder_lm_output.shape = {decoder_lm_output.shape} ({decoder_lm_output.dtype})")
-print(f"attn_weights_list.shape = {attn_weights_list.shape} ({attn_weights_list.dtype})")
-
-# ========================= #
-
-print()
-print(decoder_lm)
-print()
-param_counts = {n: p.numel() for (n, p) in decoder_lm.named_parameters()}
-# print(json.dumps(param_counts, indent=4))
-print(f"total parameters = {sum(param_counts.values())}")
 
 # ========================= #
 # test end to end generation

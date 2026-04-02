@@ -205,6 +205,8 @@ class MultiHeadAttention(torch.nn.Module):
 	both causal and cross attention
 	keep things generalized
 	we assume d_k = d_v = head_dim
+
+	current state: works for self attn; needs fix for cross attn
 	"""
 
 	def __init__(

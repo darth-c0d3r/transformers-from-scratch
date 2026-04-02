@@ -10,9 +10,9 @@ from tqdm import tqdm
 
 import torch
 
-from .embeddings import TokenEmbeddings, RotaryPositionEmbeddings
-from .transformers_core import DecoderOnlyTransformerBlock, LayerNorm_RMS, Linear
-from .transformers_core import softmax, get_token_positions_from_padding_mask
+from transformer_lm.embeddings import TokenEmbeddings, RotaryPositionEmbeddings
+from transformer_lm.transformers_core import DecoderOnlyTransformerBlock, LayerNorm_RMS, Linear
+from transformer_lm.transformers_core import softmax, get_token_positions_from_padding_mask
 
 class Decoder_LM(torch.nn.Module):
 	"""
@@ -71,6 +71,7 @@ class Decoder_LM(torch.nn.Module):
 			vocab_size = self.vocab_size,
 			model_dim = self.model_dim,
 			posn_embeddings = self.posn_embeddings == "sinusoidal",
+			max_seq_len = self.max_seq_len,
 			device = self.device,
 			dtype = self.dtype,
 			init = init,
@@ -125,7 +126,7 @@ class Decoder_LM(torch.nn.Module):
 		self,
 		input_ids,
 		padding_mask = None,
-		token_positions = None,
+		token_positions = None, # only needed for KV cache, otherwise computed here
 	):
 
 		"""
@@ -227,6 +228,7 @@ class Decoder_LM(torch.nn.Module):
 			"num_heads": self.num_heads,
 			"num_layers": self.num_layers,
 			"max_seq_len": self.max_seq_len,
+			"posn_embeddings": self.posn_embeddings,
 			"dtype": str(self.dtype),
 		}
 

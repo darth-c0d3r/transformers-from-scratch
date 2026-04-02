@@ -114,11 +114,11 @@ Implement all Tokenizers
 E2E Transformers
 	- Understand Initializations
 	-- Multiple Non Linearities
-	- Multiple Position Embeddings
+	-- Multiple Position Embeddings
 		-- RoPE
 		-- Sinusoidal
 		-- NoPE
-		- make fwd pass compatible
+		-- make fwd pass compatible
 	- Weight tying and untying
 	- Attentions: MHA, MQA, GQA, LMHA, Sparse Attn, etc.
 	- .generate
