@@ -313,8 +313,8 @@ if RUN_COMPONENT_TESTS:
 	queries = torch.randn((batch_size, num_heads, seq_len, head_dim), dtype=dtype)
 
 	attn_mask = merge_causal_and_padding_masks(
-				padding_mask=padding_mask,
-				seq_len_queries=seq_len,
+				padding_mask_data=padding_mask,
+				seq_len_data=seq_len,
 				causal=True,
 				device=device,
 			)
@@ -327,6 +327,27 @@ if RUN_COMPONENT_TESTS:
 	print_tensor_info(attn_output, "attn_output")
 
 	# ========================= #
+	# quick check if MHA works for cross attn also
+
+	keys = torch.randn((batch_size, num_heads, seq_len, head_dim), dtype=dtype)
+	values = torch.randn((batch_size, num_heads, seq_len, head_dim), dtype=dtype)
+	queries = torch.randn((batch_size, num_heads, seq_len*2, head_dim), dtype=dtype)
+
+	attn_mask = merge_causal_and_padding_masks(
+				padding_mask_data=padding_mask,
+				seq_len_data=seq_len,
+				causal=False,
+				device=device,
+			)
+
+	print_tensor_info(attn_mask, "cross_attn_mask")
+
+	attn_weights, attn_output = scaled_dot_product_attention(queries, keys, values, attn_mask)
+
+	print_tensor_info(attn_weights, "cross_attn_weights")
+	print_tensor_info(attn_output, "cross_attn_output")
+
+	# ========================= #
 
 	rope_module_mha = RotaryPositionEmbeddings(head_dim, max_seq_len, 10000, device, dtype)
 	mha_module = MultiHeadAttention(model_dim, head_dim, num_heads, True, device, dtype)
@@ -334,7 +355,7 @@ if RUN_COMPONENT_TESTS:
 	_, mha_module_wo_rope = mha_module(ffn_output, rope_module=None)
 	print_tensor_info(mha_module_wo_rope, "mha_module_wo_rope")
 
-	_, mha_module_w_rope = mha_module(ffn_output, rope_module=rope_module_mha, padding_mask=padding_mask, token_positions_queries=token_positions)
+	_, mha_module_w_rope = mha_module(ffn_output, rope_module=rope_module_mha, padding_mask_data=padding_mask, token_positions_queries=token_positions)
 	print_tensor_info(mha_module_w_rope, "mha_module_w_rope")
 
 	# ========================= #

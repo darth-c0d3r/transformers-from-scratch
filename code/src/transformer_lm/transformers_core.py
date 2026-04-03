@@ -66,16 +66,6 @@ def softmax(input_batch, dim, temperature=1.0):
 
 	return output_batch
 
-def get_causal_attention_mask(seq_len):
-	"""
-	return causal attention mask of seq_len
-	input: seq_len, int
-	output: seq_len x seq_len mask
-	returns a lower triangular square matrix
-	"""
-
-	return torch.tril(torch.ones((seq_len, seq_len)))
-
 def get_token_positions_from_padding_mask(padding_mask):
 	"""
 	token positions are needed for position embeddings
@@ -123,7 +113,17 @@ def get_token_positions_from_padding_mask(padding_mask):
 
 	return token_positions
 
-def merge_causal_and_padding_masks(padding_mask, seq_len_queries, causal, device):
+def get_causal_attention_mask(seq_len):
+	"""
+	return causal attention mask of seq_len
+	input: seq_len, int
+	output: seq_len x seq_len mask
+	returns a lower triangular square matrix
+	"""
+
+	return torch.tril(torch.ones((seq_len, seq_len)))
+
+def merge_causal_and_padding_masks(padding_mask_data, seq_len_data, causal, device):
 
 	# build the perfect attn mask which is
 	# a combination of causal mask and padding mask
@@ -137,20 +137,20 @@ def merge_causal_and_padding_masks(padding_mask, seq_len_queries, causal, device
 	# convert it into a good-er shape
 	# padding_mask.shape = batch_size x 1 x 1 x seq_len_data
 	# this as is would also work
-	if padding_mask is not None:
-		attn_mask = padding_mask.unsqueeze(1).unsqueeze(1)
+	if padding_mask_data is not None:
+		attn_mask = padding_mask_data.unsqueeze(1).unsqueeze(1)
 
-	if causal is True:
-		causal_mask = get_causal_attention_mask(seq_len_queries).to(device)
+	if causal is True: # only true for self-attn, false for cross-attn
+		causal_mask = get_causal_attention_mask(seq_len_data).to(device)
 
 		# merge causal mask and padding mask here
-		if padding_mask is not None:
+		if padding_mask_data is not None:
 			causal_mask = causal_mask.unsqueeze(0).unsqueeze(0)
 			attn_mask = attn_mask * causal_mask
 
 			# very subtle:
 			# ensure that the padding tokens can still attend to themselves
-			self_mask = torch.eye(seq_len_queries).to(device)
+			self_mask = torch.eye(seq_len_data).to(device)
 			attn_mask = torch.max(attn_mask, self_mask)
 
 		else: # causal mask to be used as attn mask
@@ -206,7 +206,8 @@ class MultiHeadAttention(torch.nn.Module):
 	keep things generalized
 	we assume d_k = d_v = head_dim
 
-	current state: works for self attn; needs fix for cross attn
+	we only need attn mask for keys & values (data), not for queries
+	if there is padding in queries, it'll be handled later anyway
 	"""
 
 	def __init__(
@@ -214,7 +215,7 @@ class MultiHeadAttention(torch.nn.Module):
 		model_dim,
 		head_dim,
 		num_heads = 1,
-		causal = True,
+		causal = True, # only makes sense for self-attn; false for cross-attn
 		device = None, # either None or a torch.device object
 		dtype = torch.float32, # either None or a torch.dtype object
 		init = True,
@@ -280,7 +281,7 @@ class MultiHeadAttention(torch.nn.Module):
 		queries_batch, # torch.tensor
 		data_batch = None, # optional, fall back to queries batch
 		rope_module = None, # optional
-		padding_mask = None, # optional, can be provided, default = causal
+		padding_mask_data = None, # optional, can be provided, default = causal
 		token_positions_queries = None, # optional, rope will handle empty
 		token_positions_data = None, # optional, rope will handle empty
 	):
@@ -296,7 +297,7 @@ class MultiHeadAttention(torch.nn.Module):
 		if data_batch is None:
 			data_batch = queries_batch
 			token_positions_data = token_positions_queries
-
+		
 		# get the basic parameters in
 		batch_size = queries_batch.shape[0]
 		seq_len_queries = queries_batch.shape[1]
@@ -329,8 +330,8 @@ class MultiHeadAttention(torch.nn.Module):
 
 		# the final attn mask is a combination of causal mask and padding mask
 		attn_mask = merge_causal_and_padding_masks(
-				padding_mask = padding_mask,
-				seq_len_queries = seq_len_queries,
+				padding_mask_data = padding_mask_data,
+				seq_len_data = seq_len_data,
 				causal = self.causal,
 				device = queries_batch.device,
 			)
@@ -677,7 +678,7 @@ class DecoderOnlyTransformerBlock(torch.nn.Module):
 		self_attn_weights, self_attn_output = self.self_attn(
 			layer_norm_1_output,
 			rope_module = rope_module,
-			padding_mask = padding_mask,
+			padding_mask_data = padding_mask,
 			token_positions_queries = token_positions,
 		)
 
