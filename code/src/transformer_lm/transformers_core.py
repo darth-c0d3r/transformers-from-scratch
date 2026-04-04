@@ -96,6 +96,8 @@ def get_token_positions_from_padding_mask(padding_mask):
 	which is an awesome and slick implementation
 	"""
 
+	# print(f"> getting token_positions from padding_mask\n")
+
 	# get the batch size and seq len
 	batch_size, seq_len_data = padding_mask.shape
 

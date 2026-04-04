@@ -196,6 +196,7 @@ def train_model(config):
 			padding_mask = padding_mask[:, :-1]
 
 			# we should also pass token_positions for posn embeddings
+			# fixed: these are calculated by the model itself
 
 			# now, do a fwd pass from the model
 			_, logits = model(input_token_ids, padding_mask)

@@ -48,7 +48,8 @@ dtype = torch.float16
 
 # what tests to run
 RUN_EMBEDDINGS_TESTS = False
-RUN_COMPONENT_TESTS = True
+RUN_COMPONENT_TESTS = False
+RUN_END_TO_END_TESTS = True
 
 print(f"\ndevice: {device} | dtype: {dtype}\n")
 
@@ -226,6 +227,8 @@ if RUN_EMBEDDINGS_TESTS:
 
 # ========================= #
 
+# ================================================================================ #
+# TEST ALL THE MODULES AND COMPONENTS SEQUENTIALLY
 if RUN_COMPONENT_TESTS:
 
 	print(f"{'=' * 100}")
@@ -404,11 +407,85 @@ if RUN_COMPONENT_TESTS:
 
 	print(f"{'=' * 100}")
 
-	import sys; sys.exit()
-
 # ========================= #
 
-import sys; sys.exit()
+# ================================================================================ #
+# TEST TOKENIZATION, TRAINING, GENERATION, SAVING & LOADING END TO END
+
+if RUN_END_TO_END_TESTS:
+
+	# ========================= #
+	# load the tokenizer and test
+	tokenizer = BPE_Tokenizer()
+	tokenizer.load_tokenizer("../../../logs/dune_part_1/tokenizer__full/")
+	print()
+
+	sentence = "Hello sir, how are you today?"
+	sentence = f"""<|start|>{sentence}<|pad|>"""
+
+	token_ids, padding_mask = batch_encode(tokenizer, [sentence], padding="left")
+	print(f"token_ids: {token_ids}")
+	print(f"padding_mask: {padding_mask}")
+	print(f"tokens: {tokenizer.convert_token_ids_to_bytes(token_ids[0])}\n")
+
+	# ========================= #
+	# load a model
+
+	model = Decoder_LM(
+		vocab_size = tokenizer.vocab_size,
+		model_dim = model_dim,
+		hidden_dim = hidden_dim,
+		head_dim = hidden_dim,
+		num_heads = num_heads,
+		num_layers = num_layers,
+		max_seq_len = max_seq_len,
+		posn_embeddings = "sinusoidal",
+		device = device,
+		dtype = dtype,
+	)
+
+	print()
+	print(model)
+	print()
+	param_counts = {n: p.numel() for (n, p) in model.named_parameters()}
+	# print(json.dumps(param_counts, indent=4))
+	print(f"total parameters = {sum(param_counts.values())}\n")
+
+	# ========================= #
+	# test generation
+
+	input_text = "<|start|>"
+	input_token_ids = tokenizer.encode(input_text)
+	
+	output_token_ids = model.generate(torch.tensor([input_token_ids]), max_new_tokens=16)[1]
+	output_text = tokenizer.decode(output_token_ids[0].tolist())
+	print(f"output_text: {output_text}\n")
+
+	# ========================= #
+	# test saving, loading, generation
+
+	model.save_model("./temp_model/")
+
+	model_2 = Decoder_LM.load_model("temp_model", device=device)
+	
+	output_token_ids = model_2.generate(torch.tensor([input_token_ids]), max_new_tokens=16)[1]
+	output_text = tokenizer.decode(output_token_ids[0].tolist())
+	print(f"output_text: {output_text}\n")
+
+	# ========================= #
+	# test generation with padding
+	input_text = "<|pad|><|pad|><|start|>"
+	input_token_ids = tokenizer.encode(input_text)
+	padding_mask = torch.tensor([[0, 0, 1]])
+
+	output_token_ids = model.generate(torch.tensor([input_token_ids]), padding_mask=padding_mask, max_new_tokens=16)[1]
+	output_text = tokenizer.decode(output_token_ids[0].tolist())
+	print(f"output_text (w padding): {output_text}\n")
+
+
+# ========================= #	
+
+	import sys; sys.exit()
 
 # ========================= #
 # test end to end generation
@@ -586,10 +663,3 @@ if False:
 	print(f"similarity_scores.shape = {similarity_scores.shape} ({similarity_scores.dtype})")
 
 	plot_sequence(torch.flip(similarity_scores, dims=[0]), "Random Query and Key at all Positions", 100, 300)
-
-# print(input_ids[0,:])
-# print(token_embeddings_output[0,0,:])
-# print(linear_output_1[0,0,:])
-# print(linear_output_2[0,0,:])
-# print(layer_norm_output[0,0,:])
-# print(softmax_output[0,0,:])

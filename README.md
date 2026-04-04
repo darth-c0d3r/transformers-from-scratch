@@ -75,7 +75,17 @@ python train_tokenizer.py --config_filename ../config/train_tokenizer.json
 
 # ===== TRAINING THE TRANSFORMER MODEL ===== #
 
+# for sanity tests
+cd ./code/src/transformer_lm/
+python test.py
 
+# for training
+cd ./code/src/
+python train_model.py --config_filename ../config/train_model.json
+
+# for generation
+cd ./code/src/
+python generate_interactive.py --config_filename ../config/generate.json
 
 ```
 
@@ -122,7 +132,13 @@ E2E Transformers
 	- Weight tying and untying
 	- Attentions: MHA, MQA, GQA, LMHA, Sparse Attn, etc.
 	- .generate
-		- Greedy, Sampled, Max Tokens, Top P, Top K, Temperature
+		-- Greedy
+		- Sampled
+		-- Max Tokens
+		- Top P
+		- Top K
+		-- Temperature
+		- Beam Search
 	- Naive KV Cache
 	-- Padding Tokens in Attention Mask
 	-- FLOPs Analysis
@@ -131,8 +147,8 @@ E2E Transformers
 	-- Verify RoPE Similarity by plotting
 		-- random distributions of K,Q
 		-- exact same values of K,Q
-	- Train on any given Wiki Article
-		- Write a cleanup function
+	- Train on Film Subtitles
+		-- Write a build-up function
 	- Create a Document of Learnings and Experiments (Graphs)
 	- Shouldn't we ideally also save dataloader state for continued training?
 	- Label smoothing

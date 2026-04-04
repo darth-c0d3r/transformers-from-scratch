@@ -1,10 +1,10 @@
 {
 
 	// tokenizer details
-	"tokenizer": "../../logs/wiki_italian_neorealism/tokenizer/",
+	"tokenizer": "../../logs/dune_part_1/tokenizer__full/",
 
 	// model details
-	"model_dir": "../../logs/wiki_italian_neorealism/model/best_pplx_ckpt/",
+	"model_dir": "../../logs/dune_part_1/model__1/final_ckpt/",
 	"dtype": "torch.float32",
 
 	// generation hyper-params

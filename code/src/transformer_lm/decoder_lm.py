@@ -202,7 +202,7 @@ class Decoder_LM(torch.nn.Module):
 			)
 		)
 
-		print(f"\nmodel loaded from {dir_path}\n")
+		print(f"\n> model loaded from {dir_path}\n")
 
 		return model
 
@@ -239,7 +239,7 @@ class Decoder_LM(torch.nn.Module):
 		# step 3: save the state dictionary
 		torch.save(self.state_dict(), os.path.join(dir_path, "model_state_dict.pt"))
 
-		print(f"\nmodel saved to {dir_path}\n")
+		print(f"\n> model saved to {dir_path}\n")
 
 		return
 

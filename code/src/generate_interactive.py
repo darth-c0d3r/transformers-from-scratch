@@ -36,7 +36,6 @@ def generate_interactive(config):
 	# step 3: load the model
 	model = Decoder_LM.load_model(config["model_dir"], device=device).to(config["dtype"])
 	assert model.vocab_size == tokenizer.vocab_size
-	print(f"> model loaded from {config['model_dir']}\n")
 	print(f"> model params = {sum([p.numel() for p in model.parameters()])}\n")
 	model.eval()
 
