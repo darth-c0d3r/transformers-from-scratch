@@ -61,7 +61,7 @@ def generate_interactive(config):
 		padding_mask = torch.tensor(padding_mask).to(device)
 
 		# do the generation step
-		_, output_ids = model.generate(input_ids=input_ids, padding_mask=padding_mask, max_new_tokens=16)
+		_, output_ids = model.generate(input_ids=input_ids, padding_mask=padding_mask, max_new_tokens=16, sampling=False)
 
 		# do the decoding
 		decoded_text = tokenizer.decode(output_ids[0].cpu().tolist())

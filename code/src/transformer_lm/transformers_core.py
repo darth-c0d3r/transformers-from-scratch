@@ -386,7 +386,7 @@ class GroupedQueryLatentAttention(torch.nn.Module):
 		self,
 		model_dim,
 		head_dim,
-		latent_attn_dim, # set to None from disabling MHLA
+		latent_attn_dim = None, # set to None from disabling MHLA
 		num_heads = 1, # set to 1 for disabling MHA
 		num_attn_groups = 1, # num_attn_groups = 1 is for mqa
 		causal = True, # only makes sense for self-attn; false for cross-attn

@@ -31,12 +31,12 @@ class Decoder_LM(torch.nn.Module):
 		model_dim,
 		hidden_dim,
 		head_dim,
-		latent_attn_dim,
-		num_heads,
-		num_attn_groups,
-		num_layers,
-		max_seq_len,
-		posn_embeddings,
+		latent_attn_dim = None,
+		num_heads = 1,
+		num_attn_groups = 1,
+		num_layers = 4,
+		max_seq_len = 4092,
+		posn_embeddings = "nope",
 		device = None, # either None or a torch.device object
 		dtype = None, # either None or a torch.dtype object
 		init = True,
@@ -257,6 +257,7 @@ class Decoder_LM(torch.nn.Module):
 		input_ids,
 		padding_mask = None,
 		max_new_tokens = None,
+		sampling = False,
 		temperature = 1.0,
 		top_p = None,
 		top_k = None,
@@ -296,7 +297,12 @@ class Decoder_LM(torch.nn.Module):
 			probs = softmax(logits, -1, temperature)
 
 			# sample token ids here
-			sampled_ids = torch.argmax(probs, -1)
+			sampled_ids = None
+			if sampling is False:
+				sampled_ids = torch.argmax(probs, -1)
+			else:
+				sampled_ids = torch.multinomial(probs, num_samples=1).view(-1)
+
 			# sampled_ids.shape = batch_size
 		
 			# append sampled_ids to input_ids
