@@ -201,6 +201,8 @@ def scaled_dot_product_attention(
 
 class MultiHeadAttention(torch.nn.Module):
 	"""
+	DEPRECATED SINCE GQA COVERS MHA & MQA
+
 	class for applying multi head attention
 	rope embeddings is optional and provided in forward
 	write this in a way that it works for
@@ -337,6 +339,182 @@ class MultiHeadAttention(torch.nn.Module):
 				causal = self.causal,
 				device = queries_batch.device,
 			)
+
+		# get the output after applying sdpa function
+		attn_weights, output_batch = scaled_dot_product_attention(
+			queries = projection_q,
+			keys = projection_k,
+			values = projection_v,
+			attn_mask = attn_mask,
+		)
+
+		# now aggregate all attention heads
+		# flip around num_heads and seq_len dimensions
+		output_batch = output_batch.transpose(1, 2).flatten(start_dim=2)
+		# output_batch.shape = batch_size x seq_len_queries x num_heads * head_dim
+
+		# apply output projection now
+		output_batch = self.W_O(output_batch)
+
+		# return attn_weights and output_batch
+		return attn_weights, output_batch
+
+class GroupedQueryAttention(torch.nn.Module):
+	"""
+	class for applying multi head attention
+	rope embeddings is optional and provided in forward
+	write this in a way that it works for
+	both causal and cross attention
+	keep things generalized
+	we assume d_k = d_v = head_dim
+
+	we only need attn mask for keys & values (data), not for queries
+	if there is padding in queries, it'll be handled later anyway
+
+	the grouped query attention implementations starts from mha
+	multi query attention is a special case of gqa (num_attn_groups = 1)
+
+	in grouped query attention, key and value heads are shared by queries
+	for special case of num_attn_groups = 1, all query heads share same kv heads
+	num_heads = num_attn_groups is exactly the same as multi head attention
+	"""
+
+	def __init__(
+		self,
+		model_dim,
+		head_dim,
+		num_heads = 1,
+		num_attn_groups = 1, # num_attn_groups = 1 is for mqa
+		causal = True, # only makes sense for self-attn; false for cross-attn
+		device = None, # either None or a torch.device object
+		dtype = torch.float32, # either None or a torch.dtype object
+		init = True,
+	):
+
+		"""
+		initialize a multi head attention block
+		which works for causal as well as self attention
+		"""
+
+		# call the super constructor
+		super().__init__()
+
+		# initialize basic parameters
+		self.model_dim = model_dim
+		self.head_dim = head_dim
+		self.num_heads = num_heads
+		self.num_attn_groups = num_attn_groups
+		self.causal = causal
+		self.device = device
+		self.dtype = dtype
+
+		# num heads should be divisible by num groups
+		assert num_heads % num_attn_groups == 0, f"num_heads ({num_heads}) not divisible by num_attn_groups ({num_attn_groups})"
+		self.group_size = self.num_heads // self.num_attn_groups
+
+		# initialize empty projection matrices
+		self.W_Q = Linear(
+			input_dim = self.model_dim,
+			output_dim = self.head_dim * self.num_heads,
+			use_bias = False,
+			device = device,
+			dtype = dtype,
+			init = init,
+		)
+
+		self.W_K = Linear(
+			input_dim = self.model_dim,
+			output_dim = self.head_dim * self.num_attn_groups,
+			use_bias = False,
+			device = device,
+			dtype = dtype,
+			init = init,
+		)
+
+		self.W_V = Linear(
+			input_dim = self.model_dim,
+			output_dim = self.head_dim * self.num_attn_groups,
+			use_bias = False,
+			device = device,
+			dtype = dtype,
+			init = init,
+		)
+
+		self.W_O = Linear(
+			input_dim = self.head_dim * self.num_heads,
+			output_dim = self.model_dim,
+			use_bias = False,
+			device = device,
+			dtype = dtype,
+			init = init,
+		)
+
+		return
+
+	def forward(
+		self,
+		queries_batch, # torch.tensor
+		data_batch = None, # optional, fall back to queries batch
+		rope_module = None, # optional
+		padding_mask_data = None, # optional, can be provided, default = causal
+		token_positions_queries = None, # optional, rope will handle empty
+		token_positions_data = None, # optional, rope will handle empty
+	):
+
+		"""
+		forward pass for attenion module
+		queries_batch.shape = batch_size x seq_len_queries x model_dim
+		data_batch.shape = batch_size x seq_len_data x model_dim
+		token_positions.shape = batch_size x seq_len
+		"""
+
+		# handle the self attention set up here
+		if data_batch is None:
+			data_batch = queries_batch
+			token_positions_data = token_positions_queries
+		
+		# get the basic parameters in
+		batch_size = queries_batch.shape[0]
+		seq_len_queries = queries_batch.shape[1]
+		seq_len_data = data_batch.shape[1]
+
+		# get the first set of projections in
+		projection_q = self.W_Q(queries_batch)
+		projection_k = self.W_K(data_batch)
+		projection_v = self.W_V(data_batch)
+
+		# carve up the q k v projections to num heads
+		projection_q = projection_q.contiguous().view((batch_size, seq_len_queries, self.num_heads, self.head_dim)).transpose(1, 2)
+		projection_k = projection_k.contiguous().view((batch_size, seq_len_data, self.num_attn_groups, self.head_dim)).transpose(1, 2)
+		projection_v = projection_v.contiguous().view((batch_size, seq_len_data, self.num_attn_groups, self.head_dim)).transpose(1, 2)
+		# the projections shape is now batch_size x num_heads or num_attn_groups x seq_len x head_dim
+
+		# apply rope embeddings if needed now
+		# this is applied only to query and key vectors
+		if rope_module is not None:
+			# for rope, we need to modify shapes of token_positions
+			
+			if token_positions_queries is not None:
+				token_positions_queries = token_positions_queries.unsqueeze(1).repeat((1, self.num_heads, 1))
+
+			if token_positions_data is not None:
+				token_positions_data = token_positions_data.unsqueeze(1).repeat((1, self.num_attn_groups, 1))
+
+			projection_q = rope_module(projection_q, token_positions_queries)
+			projection_k = rope_module(projection_k, token_positions_data)
+
+		# the final attn mask is a combination of causal mask and padding mask
+		attn_mask = merge_causal_and_padding_masks(
+				padding_mask_data = padding_mask_data,
+				seq_len_data = seq_len_data,
+				causal = self.causal,
+				device = queries_batch.device,
+			)
+
+		# before calculating SDPA, repeat the key and value data to match query data
+		# ideally, we should implement better sdpa to handle this case but okay
+		projection_k = projection_k.repeat((1, self.group_size, 1, 1))
+		projection_v = projection_v.repeat((1, self.group_size, 1, 1))
 
 		# get the output after applying sdpa function
 		attn_weights, output_batch = scaled_dot_product_attention(
@@ -599,6 +777,7 @@ class DecoderOnlyTransformerBlock(torch.nn.Module):
 		hidden_dim,
 		head_dim,
 		num_heads,
+		num_attn_groups,
 		device = None, # either None or a torch.device object
 		dtype = None, # either None or a torch.dtype object
 		init = True,
@@ -616,6 +795,7 @@ class DecoderOnlyTransformerBlock(torch.nn.Module):
 		self.hidden_dim = hidden_dim
 		self.head_dim = head_dim
 		self.num_heads = num_heads
+		self.num_attn_groups = num_attn_groups
 		self.device = device
 		self.dtype = dtype
 
@@ -641,10 +821,11 @@ class DecoderOnlyTransformerBlock(torch.nn.Module):
 		)
 
 		# step 2: 1 x multi head attention layer
-		self.self_attn = MultiHeadAttention(
+		self.self_attn = GroupedQueryAttention(
 			model_dim = self.model_dim,
 			head_dim = self.head_dim,
 			num_heads = self.num_heads,
+			num_attn_groups = self.num_attn_groups,
 			causal = True,
 			device = self.device,
 			dtype = self.dtype,

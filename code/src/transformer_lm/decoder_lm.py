@@ -32,6 +32,7 @@ class Decoder_LM(torch.nn.Module):
 		hidden_dim,
 		head_dim,
 		num_heads,
+		num_attn_groups,
 		num_layers,
 		max_seq_len,
 		posn_embeddings,
@@ -53,6 +54,7 @@ class Decoder_LM(torch.nn.Module):
 		self.hidden_dim = hidden_dim
 		self.head_dim = head_dim
 		self.num_heads = num_heads
+		self.num_attn_groups = num_attn_groups
 		self.num_layers = num_layers
 		self.max_seq_len = max_seq_len
 		self.posn_embeddings = posn_embeddings
@@ -95,6 +97,7 @@ class Decoder_LM(torch.nn.Module):
 				hidden_dim = self.hidden_dim,
 				head_dim = self.head_dim,
 				num_heads = self.num_heads,
+				num_attn_groups = self.num_attn_groups,
 				device = self.device,
 				dtype = self.dtype,
 				init = init,
@@ -226,6 +229,7 @@ class Decoder_LM(torch.nn.Module):
 			"hidden_dim": self.hidden_dim,
 			"head_dim": self.head_dim,
 			"num_heads": self.num_heads,
+			"num_attn_groups": self.num_attn_groups,
 			"num_layers": self.num_layers,
 			"max_seq_len": self.max_seq_len,
 			"posn_embeddings": self.posn_embeddings,

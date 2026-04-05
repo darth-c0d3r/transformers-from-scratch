@@ -83,6 +83,8 @@ python test.py
 cd ./code/src/
 python train_model.py --config_filename ../config/train_model.json
 
+# ===== GENERATING FROM A TRAINED MODEL ===== #
+
 # for generation
 cd ./code/src/
 python generate_interactive.py --config_filename ../config/generate.json
@@ -130,7 +132,12 @@ E2E Transformers
 		-- NoPE
 		-- make fwd pass compatible
 	- Weight tying and untying
-	- Attentions: MHA, MQA, GQA, LMHA, Sparse Attn, etc.
+	- Attentions:
+		-- MultiHeadAttention
+		- MultiQueryAttention
+		- GroupedQueryAttention
+		- LatentMultiHeadAttention
+		- SparseAttention, etc.
 	- .generate
 		-- Greedy
 		- Sampled

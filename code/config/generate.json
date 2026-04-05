@@ -4,7 +4,8 @@
 	"tokenizer": "../../logs/dune_part_1/tokenizer__full/",
 
 	// model details
-	"model_dir": "../../logs/dune_part_1/model__1/final_ckpt/",
+	// "model_dir": "../../logs/dune_part_1/model__2/final_ckpt/",
+	"model_dir": "../../logs/dune_part_1/model__2/best_pplx_ckpt/",
 	"dtype": "torch.float32",
 
 	// generation hyper-params

@@ -37,6 +37,7 @@ hidden_dim = 32
 
 # attn settings
 num_heads = 12
+num_attn_groups = 3
 head_dim = 8
 
 # model depth
@@ -48,8 +49,8 @@ dtype = torch.float16
 
 # what tests to run
 RUN_EMBEDDINGS_TESTS = False
-RUN_COMPONENT_TESTS = False
-RUN_END_TO_END_TESTS = True
+RUN_COMPONENT_TESTS = True
+RUN_END_TO_END_TESTS = False
 
 print(f"\ndevice: {device} | dtype: {dtype}\n")
 
@@ -363,7 +364,26 @@ if RUN_COMPONENT_TESTS:
 
 	# ========================= #
 
-	decoder_block = DecoderOnlyTransformerBlock(model_dim, hidden_dim, head_dim, num_heads, device, dtype)
+	mqa_module = GroupedQueryAttention(model_dim, head_dim, num_heads, 1, True, device, dtype)
+
+	_, mqa_module_output = mqa_module(ffn_output, rope_module=rope_module_mha, padding_mask_data=padding_mask, token_positions_queries=token_positions)
+	print_tensor_info(mqa_module_output, "mqa_module_output")
+
+
+	mha_spcl_module = GroupedQueryAttention(model_dim, head_dim, num_heads, num_heads, True, device, dtype)
+
+	_, mha_spcl_module_output = mha_spcl_module(ffn_output, rope_module=rope_module_mha, padding_mask_data=padding_mask, token_positions_queries=token_positions)
+	print_tensor_info(mha_spcl_module_output, "mha_spcl_module_output")
+
+
+	gqa_module = GroupedQueryAttention(model_dim, head_dim, num_heads, num_attn_groups, True, device, dtype)
+
+	_, gqa_module_output = gqa_module(ffn_output, rope_module=rope_module_mha, padding_mask_data=padding_mask, token_positions_queries=token_positions)
+	print_tensor_info(gqa_module_output, "gqa_module_output")
+
+	# ========================= #
+
+	decoder_block = DecoderOnlyTransformerBlock(model_dim, hidden_dim, head_dim, num_heads, num_heads, device, dtype)
 
 	decoder_attn_weights, decoder_block_output = decoder_block(token_embeddings_output, rope_module=rope_module_mha, padding_mask=padding_mask, token_positions=token_positions)
 
@@ -378,9 +398,10 @@ if RUN_COMPONENT_TESTS:
 		hidden_dim = hidden_dim,
 		head_dim = hidden_dim,
 		num_heads = num_heads,
+		num_attn_groups = num_attn_groups,
 		num_layers = num_layers,
 		max_seq_len = max_seq_len,
-		posn_embeddings = "nope",
+		posn_embeddings = "rope",
 		device = device,
 		dtype = dtype,
 	)
@@ -437,6 +458,7 @@ if RUN_END_TO_END_TESTS:
 		hidden_dim = hidden_dim,
 		head_dim = hidden_dim,
 		num_heads = num_heads,
+		num_attn_groups = num_attn_groups,
 		num_layers = num_layers,
 		max_seq_len = max_seq_len,
 		posn_embeddings = "sinusoidal",
@@ -485,7 +507,7 @@ if RUN_END_TO_END_TESTS:
 
 # ========================= #	
 
-	import sys; sys.exit()
+import sys; sys.exit()
 
 # ========================= #
 # test end to end generation

@@ -10,24 +10,25 @@
 	"tokenizer": "../../logs/dune_part_1/tokenizer__full/",
 
 	// output details
-	"output_dir": "../../logs/dune_part_1/model__1/",
+	"output_dir": "../../logs/dune_part_1/model__2/",
 
 	// model details
 	// either build from scratch or load from ckpt
 	"model_dir": null,
 	"model_config": {
-		"model_dim": 256,
-		"hidden_dim": 512,
-		"head_dim": 32,
-		"num_heads": 8,
-		"num_layers": 4,
+		"model_dim": 512,
+		"hidden_dim": 1024,
+		"head_dim": 64,
+		"num_heads": 16,
+		"num_attn_groups": 16,
+		"num_layers": 8,
 		"max_seq_len": 4096,
 		"posn_embeddings": "rope", // ["rope", "sinusoidal", "nope"]
 	},
 	"dtype": "torch.float32",
 
 	// training hyper parameters
-	"num_epochs": 20,
+	"num_epochs": 40,
 	"batch_size": 2,
 	"gradient_accumulation_steps": 8,
 
