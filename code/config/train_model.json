@@ -10,7 +10,7 @@
 	"tokenizer": "../../logs/dune_part_1/tokenizer__full/",
 
 	// output details
-	"output_dir": "../../logs/dune_part_1/model__2/",
+	"output_dir": "../../logs/dune_part_1/model__5/",
 
 	// model details
 	// either build from scratch or load from ckpt
@@ -19,6 +19,7 @@
 		"model_dim": 512,
 		"hidden_dim": 1024,
 		"head_dim": 64,
+		"latent_attn_dim": 128, // set null if don't want mhla
 		"num_heads": 16,
 		"num_attn_groups": 16,
 		"num_layers": 8,
@@ -28,7 +29,7 @@
 	"dtype": "torch.float32",
 
 	// training hyper parameters
-	"num_epochs": 40,
+	"num_epochs": 100,
 	"batch_size": 2,
 	"gradient_accumulation_steps": 8,
 

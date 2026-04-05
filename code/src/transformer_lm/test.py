@@ -34,6 +34,7 @@ vocab_size = 32
 # model settings
 model_dim = 16
 hidden_dim = 32
+latent_attn_dim = 4
 
 # attn settings
 num_heads = 12
@@ -364,26 +365,33 @@ if RUN_COMPONENT_TESTS:
 
 	# ========================= #
 
-	mqa_module = GroupedQueryAttention(model_dim, head_dim, num_heads, 1, True, device, dtype)
+	mqa_module = GroupedQueryLatentAttention(model_dim, head_dim, None, num_heads, 1, True, device, dtype)
 
 	_, mqa_module_output = mqa_module(ffn_output, rope_module=rope_module_mha, padding_mask_data=padding_mask, token_positions_queries=token_positions)
 	print_tensor_info(mqa_module_output, "mqa_module_output")
 
 
-	mha_spcl_module = GroupedQueryAttention(model_dim, head_dim, num_heads, num_heads, True, device, dtype)
+	mha_spcl_module = GroupedQueryLatentAttention(model_dim, head_dim, None, num_heads, num_heads, True, device, dtype)
 
 	_, mha_spcl_module_output = mha_spcl_module(ffn_output, rope_module=rope_module_mha, padding_mask_data=padding_mask, token_positions_queries=token_positions)
 	print_tensor_info(mha_spcl_module_output, "mha_spcl_module_output")
 
 
-	gqa_module = GroupedQueryAttention(model_dim, head_dim, num_heads, num_attn_groups, True, device, dtype)
+	gqa_module = GroupedQueryLatentAttention(model_dim, head_dim, None, num_heads, num_attn_groups, True, device, dtype)
 
 	_, gqa_module_output = gqa_module(ffn_output, rope_module=rope_module_mha, padding_mask_data=padding_mask, token_positions_queries=token_positions)
 	print_tensor_info(gqa_module_output, "gqa_module_output")
 
+
+	mhla_module = GroupedQueryLatentAttention(model_dim, head_dim, latent_attn_dim, num_heads, num_attn_groups, True, device, dtype)
+
+	_, mhla_module_output = mhla_module(ffn_output, rope_module=rope_module_mha, padding_mask_data=padding_mask, token_positions_queries=token_positions)
+	print_tensor_info(mhla_module_output, "mhla_module_output")
+
+
 	# ========================= #
 
-	decoder_block = DecoderOnlyTransformerBlock(model_dim, hidden_dim, head_dim, num_heads, num_heads, device, dtype)
+	decoder_block = DecoderOnlyTransformerBlock(model_dim, hidden_dim, head_dim, latent_attn_dim, num_heads, num_heads, device, dtype)
 
 	decoder_attn_weights, decoder_block_output = decoder_block(token_embeddings_output, rope_module=rope_module_mha, padding_mask=padding_mask, token_positions=token_positions)
 
@@ -397,6 +405,7 @@ if RUN_COMPONENT_TESTS:
 		model_dim = model_dim,
 		hidden_dim = hidden_dim,
 		head_dim = hidden_dim,
+		latent_attn_dim = latent_attn_dim,
 		num_heads = num_heads,
 		num_attn_groups = num_attn_groups,
 		num_layers = num_layers,
@@ -457,6 +466,7 @@ if RUN_END_TO_END_TESTS:
 		model_dim = model_dim,
 		hidden_dim = hidden_dim,
 		head_dim = hidden_dim,
+		latent_attn_dim = latent_attn_dim,
 		num_heads = num_heads,
 		num_attn_groups = num_attn_groups,
 		num_layers = num_layers,

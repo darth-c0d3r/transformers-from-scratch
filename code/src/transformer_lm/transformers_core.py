@@ -359,7 +359,7 @@ class MultiHeadAttention(torch.nn.Module):
 		# return attn_weights and output_batch
 		return attn_weights, output_batch
 
-class GroupedQueryAttention(torch.nn.Module):
+class GroupedQueryLatentAttention(torch.nn.Module):
 	"""
 	class for applying multi head attention
 	rope embeddings is optional and provided in forward
@@ -377,13 +377,17 @@ class GroupedQueryAttention(torch.nn.Module):
 	in grouped query attention, key and value heads are shared by queries
 	for special case of num_attn_groups = 1, all query heads share same kv heads
 	num_heads = num_attn_groups is exactly the same as multi head attention
+
+	the latent attention implementation isn't exactly matching w paper
+	it has a concept of decoupled rope which i'm skipping
 	"""
 
 	def __init__(
 		self,
 		model_dim,
 		head_dim,
-		num_heads = 1,
+		latent_attn_dim, # set to None from disabling MHLA
+		num_heads = 1, # set to 1 for disabling MHA
 		num_attn_groups = 1, # num_attn_groups = 1 is for mqa
 		causal = True, # only makes sense for self-attn; false for cross-attn
 		device = None, # either None or a torch.device object
@@ -402,6 +406,7 @@ class GroupedQueryAttention(torch.nn.Module):
 		# initialize basic parameters
 		self.model_dim = model_dim
 		self.head_dim = head_dim
+		self.latent_attn_dim = latent_attn_dim
 		self.num_heads = num_heads
 		self.num_attn_groups = num_attn_groups
 		self.causal = causal
@@ -411,6 +416,21 @@ class GroupedQueryAttention(torch.nn.Module):
 		# num heads should be divisible by num groups
 		assert num_heads % num_attn_groups == 0, f"num_heads ({num_heads}) not divisible by num_attn_groups ({num_attn_groups})"
 		self.group_size = self.num_heads // self.num_attn_groups
+
+		# handle the layer for latent projections
+		self.W_DKV = None
+		if self.latent_attn_dim is not None:
+			self.W_DKV = Linear(
+				input_dim = self.model_dim,
+				output_dim = self.latent_attn_dim,
+				use_bias = False,
+				device = device,
+				dtype = dtype,
+				init = init,
+			)
+
+		if self.latent_attn_dim is None:
+			self.latent_attn_dim = self.model_dim
 
 		# initialize empty projection matrices
 		self.W_Q = Linear(
@@ -423,7 +443,7 @@ class GroupedQueryAttention(torch.nn.Module):
 		)
 
 		self.W_K = Linear(
-			input_dim = self.model_dim,
+			input_dim = self.latent_attn_dim,
 			output_dim = self.head_dim * self.num_attn_groups,
 			use_bias = False,
 			device = device,
@@ -432,7 +452,7 @@ class GroupedQueryAttention(torch.nn.Module):
 		)
 
 		self.W_V = Linear(
-			input_dim = self.model_dim,
+			input_dim = self.latent_attn_dim,
 			output_dim = self.head_dim * self.num_attn_groups,
 			use_bias = False,
 			device = device,
@@ -477,6 +497,11 @@ class GroupedQueryAttention(torch.nn.Module):
 		batch_size = queries_batch.shape[0]
 		seq_len_queries = queries_batch.shape[1]
 		seq_len_data = data_batch.shape[1]
+
+		# handle the down-projection of data_batch
+		# this is what also gets saved in kv cache
+		if self.W_DKV is not None:
+			data_batch = self.W_DKV(data_batch)
 
 		# get the first set of projections in
 		projection_q = self.W_Q(queries_batch)
@@ -776,6 +801,7 @@ class DecoderOnlyTransformerBlock(torch.nn.Module):
 		model_dim,
 		hidden_dim,
 		head_dim,
+		latent_attn_dim,
 		num_heads,
 		num_attn_groups,
 		device = None, # either None or a torch.device object
@@ -794,6 +820,7 @@ class DecoderOnlyTransformerBlock(torch.nn.Module):
 		self.model_dim = model_dim
 		self.hidden_dim = hidden_dim
 		self.head_dim = head_dim
+		self.latent_attn_dim = latent_attn_dim
 		self.num_heads = num_heads
 		self.num_attn_groups = num_attn_groups
 		self.device = device
@@ -821,10 +848,11 @@ class DecoderOnlyTransformerBlock(torch.nn.Module):
 		)
 
 		# step 2: 1 x multi head attention layer
-		self.self_attn = GroupedQueryAttention(
+		self.self_attn = GroupedQueryLatentAttention(
 			model_dim = self.model_dim,
 			head_dim = self.head_dim,
 			num_heads = self.num_heads,
+			latent_attn_dim = self.latent_attn_dim,
 			num_attn_groups = self.num_attn_groups,
 			causal = True,
 			device = self.device,

@@ -134,9 +134,9 @@ E2E Transformers
 	- Weight tying and untying
 	- Attentions:
 		-- MultiHeadAttention
-		- MultiQueryAttention
-		- GroupedQueryAttention
-		- LatentMultiHeadAttention
+		-- MultiQueryAttention
+		-- GroupedQueryAttention
+		-- LatentMultiHeadAttention
 		- SparseAttention, etc.
 	- .generate
 		-- Greedy
