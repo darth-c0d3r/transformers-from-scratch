@@ -94,72 +94,73 @@ python generate_interactive.py --config_filename ../config/generate.json
 
 # To-Do
 
-Implement all Tokenizers
-	~~ character-based tokenizer [ditch]
-	-- byte-based tokenizer
-	~~ word-based tokenizer [ditch]
-	- sentence piece tokenizer
-	-- bpe tokenizer
-		-- add provision for special rules
-			-- special tokens
-			-- numbers always tokenized separately (llama)
-		-- dictionary of merges implementation of encode
-		-- double pointer greedy implementation of encode
-		-- compare the 2 for correctness and time complexity
-		-- optimized encoding (cs 336)
-	- hoffmann encoding?
-	-- implement helper functions
-		-- bytes per token
-		-- chars per token
-	-- pre tokenization
-		-- gpt2
-		-- gpt4
-	-- special tokens provision
-	- a pure c++ implementation of tokenizer encoding and decoding?
-	-- multi-threaded: just split into n by space and run n processes? class fxn?
-	-- move testing code out of main file
-	-- counter over pre-tokenizer while training: 2x speedup in training
-	-- cached decoding
-	- on scale training / encoding
-	-- Train on List of Documents
+- [ ] Implement all Tokenizers
+	- [ ] ~~character-based tokenizer [ditch]~~
+	- [x] byte-based tokenizer
+	- [ ] ~~word-based tokenizer [ditch]~~
+	- [ ] sentence piece tokenizer
+	- [x] bpe tokenizer
+		- [x] add provision for special rules
+			- [x] special tokens
+			- [x] numbers always tokenized separately (llama)
+		- [x] dictionary of merges implementation of encode
+		- [x] double pointer greedy implementation of encode
+		- [x] compare the 2 for correctness and time complexity
+		- [x] optimized encoding (cs 336)
+	- [ ] hoffmann encoding?
+	- [x] implement helper functions
+		- [x] bytes per token
+		- [x] chars per token
+	- [x] pre tokenization
+		- [x] gpt2
+		- [x] gpt4
+	- [x] special tokens provision
+	- [ ] a pure c++ implementation of tokenizer encoding and decoding?
+	- [x] multi-threaded: just split into n by space and run n processes? class fxn?
+	- [x] move testing code out of main file
+	- [x] counter over pre-tokenizer while training: 2x speedup in training
+	- [x] cached decoding
+	- [ ] on scale training / encoding
+	- [x] Train on List of Documents
 
-E2E Transformers
-	- Understand Initializations
-	-- Multiple Non Linearities
-	-- Multiple Position Embeddings
-		-- RoPE
-		-- Sinusoidal
-		-- NoPE
-		-- make fwd pass compatible
-	- Weight tying and untying
-	- Attentions:
-		-- MultiHeadAttention
-		-- MultiQueryAttention
-		-- GroupedQueryAttention
-		-- LatentMultiHeadAttention
-		- SparseAttention, etc.
-	- .generate
-		-- Greedy
-		- Sampled
-		-- Max Tokens
-		- Top P
-		- Top K
-		-- Temperature
-		- Beam Search
-	- Naive KV Cache
-	-- Padding Tokens in Attention Mask
-	-- FLOPs Analysis
-		-- Relation of L vs D
-		-- Verify with ChatGPT
-	-- Verify RoPE Similarity by plotting
-		-- random distributions of K,Q
-		-- exact same values of K,Q
-	- Train on Film Subtitles
-		-- Write a build-up function
-	- Create a Document of Learnings and Experiments (Graphs)
-	- Shouldn't we ideally also save dataloader state for continued training?
-	- Label smoothing
-	-- Think about ideal CE Loss given V (max=log(V), min or ideal = ??)
-	- How large a model to learn IID data? correlated data?
-	- Train on Tiny Stories
-	- Ablations
+- [ ] E2E Transformers
+	- [ ] Understand Initializations
+	- [x] Multiple Non Linearities
+	- [x] Multiple Position Embeddings
+		- [x] RoPE
+		- [x] Sinusoidal
+		- [x] NoPE
+		- [x] make fwd pass compatible
+	- [ ] Weight tying and untying
+	- [ ] Attentions:
+		- [x] MultiHeadAttention
+		- [x] MultiQueryAttention
+		- [x] GroupedQueryAttention
+		- [x] LatentMultiHeadAttention
+		- [ ] SparseAttention
+		- [ ] LinearAttention
+	- [x] .generate
+		- [x] Greedy
+		- [x] Sampled
+		- [x] Max Tokens
+		- [ ] Top P
+		- [ ] Top K
+		- [x] Temperature
+		- [ ] Beam Search
+	- [ ] Naive KV Cache
+	- [x] Padding Tokens in Attention Mask
+	- [x] FLOPs Analysis
+		- [x] Relation of L vs D
+		- [x] Verify with ChatGPT
+	- [x] Verify RoPE Similarity by plotting
+		- [x] random distributions of K,Q
+		- [x] exact same values of K,Q
+	- [x] Train on Film Subtitles
+		- [x] Write a build-up function
+	- [ ] Create a Document of Learnings and Experiments (Graphs)
+	- [ ] Shouldn't we ideally also save dataloader state for continued training?
+	- [ ] Label smoothing
+	- [x] Think about ideal CE Loss given V (max=log(V), min or ideal = ??)
+	- [ ] How large a model to learn IID data? correlated data?
+	- [ ] Ablations
+	- [ ] Training for Seq2Seq Tasks

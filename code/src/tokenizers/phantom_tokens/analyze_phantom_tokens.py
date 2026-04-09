@@ -27,7 +27,6 @@ def parse(x):
 merge_data = [parse(l[len("MERGED"):].strip()) for l in all_lines if l.startswith("MERGED")]
 final_tokens = ast.literal_eval(all_lines[-1][len("FINAL"):])
 
-
 print(merge_data[:5], len(merge_data))
 # pair, target, count
 
