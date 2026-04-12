@@ -1076,7 +1076,7 @@ class BPE_Tokenizer():
 
 		return
 
-	def apply_chat_template(self, document_list, apply_stop_token=True):
+	def apply_chat_template(self, document_list, apply_start_token=True, apply_stop_token=True):
 		"""
 		apply chat template will just add <start> and <end> to document
 		"""
@@ -1087,7 +1087,9 @@ class BPE_Tokenizer():
 			return document
 
 		# get the string form of start and pad tokens
-		start_token = self.special_tokens[self.start_token_id].decode(self.encoding)
+		start_token = ""
+		if apply_start_token is True:
+			start_token = self.special_tokens[self.start_token_id].decode(self.encoding)
 		
 		pad_token = ""
 		if apply_stop_token is True:

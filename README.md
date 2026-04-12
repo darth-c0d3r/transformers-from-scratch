@@ -70,6 +70,7 @@ cd ./code/src/tokenizers/
 python test.py
 
 # for training
+# the dataset tsv files must have `Document` column
 cd ./code/src/
 python train_tokenizer.py --config_filename ../config/train_tokenizer.json
 
@@ -79,9 +80,15 @@ python train_tokenizer.py --config_filename ../config/train_tokenizer.json
 cd ./code/src/transformer_lm/
 python test.py
 
-# for training
+# for training (pretraining)
+# the dataset tsv files must have `Document` column
 cd ./code/src/
-python train_model.py --config_filename ../config/train_model.json
+python train_model__pretrain.py --config_filename ../config/train_model__pretrain.json
+
+# for training (supervised fine-tuning)
+# the dataset tsv files must have `Source` and `Target` columns
+cd ./code/src/
+python train_model__sft.py --config_filename ../config/train_model__sft.json
 
 # ===== GENERATING FROM A TRAINED MODEL ===== #
 

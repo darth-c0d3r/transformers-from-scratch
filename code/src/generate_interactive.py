@@ -33,6 +33,10 @@ def generate_interactive(config):
 	print(f"> model params = {sum([p.numel() for p in model.parameters()])}\n")
 	model.eval()
 
+	# step 4: do we want to apply stop token?
+	# true for sft model, false for completion model
+	apply_stop_token = True
+
 	# do a while true loop
 	while True:
 		print(f"\n{'='*10}\n")
@@ -44,7 +48,7 @@ def generate_interactive(config):
 		s = time.time()
 
 		# apply chat template to the prompt
-		prompt = tokenizer.apply_chat_template([prompt], apply_stop_token=False)
+		prompt = tokenizer.apply_chat_template([prompt], apply_stop_token=apply_stop_token)
 		print(f"> prompt formatted: {prompt[0]}")
 
 		# get the input token ids

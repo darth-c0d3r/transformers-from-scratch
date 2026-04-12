@@ -1,0 +1,36 @@
+{
+	// dataset details
+	"dataset_type": "tsv",
+	"train_dataset": "../../data/movie_subs/dune_part_1__sft_reversed/train.tsv",
+	"val_dataset": "../../data/movie_subs/dune_part_1__sft_reversed/val.tsv",
+	"train_dataset_size": -1,
+	"val_dataset_size": -1,
+
+	// tokenizer details
+	"tokenizer": "../../logs/dune_part_1/tokenizer__full/",
+
+	// output details
+	"output_dir": "../../logs/dune_part_1/model__5__sft__1/",
+
+	// model details
+	// either build from scratch or load from ckpt
+	"model_dir": "../../logs/dune_part_1/model__5/final_ckpt/",
+	"model_config": null,
+	"dtype": "torch.float32",
+
+	// training hyper parameters
+	"num_epochs": 100,
+	"batch_size": 2,
+	"gradient_accumulation_steps": 8,
+
+	// opt hyper params
+	"learning_rate": 1e-4,
+	"weight_decay": 1e-3,
+	"min_learning_rate": 1e-7,
+	"ratio_warmup_steps": 0.05,
+	"ratio_anneal_steps": 0.95, 
+	"max_gradient_norm": 10.0,
+
+	// other cosmetic stuff
+	"eval_frequency": 64,
+}

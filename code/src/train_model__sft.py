@@ -1,5 +1,10 @@
 """
 use this script to train a model on a tsv
+this is the script for supervised fine-tuning of a model
+on a simple next token prediction task (src --> tgt)
+
+the input tsv should have `Source` and `Target` columns
+that will be used for training
 """
 
 from argparse import ArgumentParser
@@ -41,17 +46,29 @@ def evaluate(model, tokenizer, val_dataloader, loss_fxn, eval_fxn):
 	for idx, batch in tqdm(enumerate(val_dataloader), desc="running evals", total=len(val_dataloader), disable=True):
 
 		# apply chat template to all training documents
-		documents = tokenizer.apply_chat_template(batch['Document'])
+		src_list = tokenizer.apply_chat_template(batch['Source'])
+		tgt_list = tokenizer.apply_chat_template(batch['Target'], apply_start_token=False)
 
-		# get input token ids and padding mask
-		input_token_ids, padding_mask = batch_encode(tokenizer, documents, cache=True)
-		input_token_ids = torch.tensor(input_token_ids).to(device)
-		padding_mask = torch.tensor(padding_mask).to(device)
+		# get input token ids and padding mask separately (from both sides)
+		input_token_ids_src, padding_mask_src = batch_encode(tokenizer, src_list, cache=True, padding="left")
+		input_token_ids_tgt, padding_mask_tgt = batch_encode(tokenizer, tgt_list, cache=True, padding="right")
+
+		# put the tokens and mask on correct device
+		input_token_ids_src = torch.tensor(input_token_ids_src).to(device)
+		padding_mask_src = torch.tensor(padding_mask_src).to(device)
+		input_token_ids_tgt = torch.tensor(input_token_ids_tgt).to(device)
+		padding_mask_tgt = torch.tensor(padding_mask_tgt).to(device)
+
+		# concatenate src and tgt data to get token ids, padding mask and loss mask
+		input_token_ids = torch.cat([input_token_ids_src, input_token_ids_tgt], dim=1)
+		padding_mask = torch.cat([padding_mask_src, padding_mask_tgt], dim=1)
+		loss_mask = torch.cat([torch.zeros_like(padding_mask_src), padding_mask_tgt], dim=1)
 
 		# target token ids are one skipped and input token ids are one left
 		target_token_ids = input_token_ids[:, 1:]
 		input_token_ids = input_token_ids[:, :-1]
 		padding_mask = padding_mask[:, :-1]
+		loss_mask = loss_mask[:, 1:]
 
 		# we should also pass token_positions for posn embeddings
 
@@ -59,8 +76,8 @@ def evaluate(model, tokenizer, val_dataloader, loss_fxn, eval_fxn):
 		_, logits = model(input_token_ids, padding_mask)
 
 		# get the loss value and evaluation value
-		loss = loss_fxn(logits, target_token_ids, loss_mask=padding_mask)
-		score = eval_fxn(logits, target_token_ids, loss_mask=padding_mask)
+		loss = loss_fxn(logits, target_token_ids, loss_mask=loss_mask)
+		score = eval_fxn(logits, target_token_ids, loss_mask=loss_mask)
 
 		# add to total values
 		total_loss += loss.cpu().item()
@@ -80,9 +97,13 @@ def train_model(config):
 		train_dataset = CSV_Dataset(config["train_dataset"], sep="\t")
 		val_dataset = CSV_Dataset(config["val_dataset"], sep="\t")
 	else:
+		print(f"> error: only tsv data implemented for sft. exiting.\n")
+		return
+
 		dataset = load_dataset(config["train_dataset"]).rename_column("text", "Document").shuffle(seed=42)
 		train_dataset = dataset["train"].select(range(config["train_dataset_size"]))
 		val_dataset = dataset["validation"].select(range(config["val_dataset_size"]))
+
 	print(f"> train dataset = {len(train_dataset)} || val dataset = {len(val_dataset)}\n")
 
 	# step 3: convert dataset to dataloaders
@@ -97,7 +118,7 @@ def train_model(config):
 	if config["model_dir"] is not None: # case 1: load from model dir
 		model = Decoder_LM.load_model(config["model_dir"], device=device).to(config["dtype"])
 		assert model.vocab_size == tokenizer.vocab_size
-		print(f"> model loaded from {config['model_dir']}\n")
+		# print(f"> model loaded from {config['model_dir']}\n")
 
 	else: # case 2: build model from scratch
 		model = Decoder_LM(
@@ -164,9 +185,9 @@ def train_model(config):
 		lr_scaling_factor = torch.log(torch.tensor(model.vocab_size)).item()/config["learning_rate"],
 	)
 
-
 	# iterate for n epochs and over each mini-batch
 	for epoch in range(config["num_epochs"]):
+
 		pbar = tqdm(
 			enumerate(train_dataloader), 
 			# desc=f"epoch {epoch+1}/{config['num_epochs']} (loss={loss.cpu().item():.4f})",
@@ -183,17 +204,29 @@ def train_model(config):
 			total_steps_so_far += 1
 
 			# apply chat template to all training documents
-			documents = tokenizer.apply_chat_template(batch['Document'])
+			src_list = tokenizer.apply_chat_template(batch['Source'])
+			tgt_list = tokenizer.apply_chat_template(batch['Target'], apply_start_token=False)
 
-			# get input token ids and padding mask
-			input_token_ids, padding_mask = batch_encode(tokenizer, documents, cache=True)
-			input_token_ids = torch.tensor(input_token_ids).to(device)
-			padding_mask = torch.tensor(padding_mask).to(device)
+			# get input token ids and padding mask separately (from both sides)
+			input_token_ids_src, padding_mask_src = batch_encode(tokenizer, src_list, cache=True, padding="left")
+			input_token_ids_tgt, padding_mask_tgt = batch_encode(tokenizer, tgt_list, cache=True, padding="right")
+
+			# put the tokens and mask on correct device
+			input_token_ids_src = torch.tensor(input_token_ids_src).to(device)
+			padding_mask_src = torch.tensor(padding_mask_src).to(device)
+			input_token_ids_tgt = torch.tensor(input_token_ids_tgt).to(device)
+			padding_mask_tgt = torch.tensor(padding_mask_tgt).to(device)
+
+			# concatenate src and tgt data to get token ids, padding mask and loss mask
+			input_token_ids = torch.cat([input_token_ids_src, input_token_ids_tgt], dim=1)
+			padding_mask = torch.cat([padding_mask_src, padding_mask_tgt], dim=1)
+			loss_mask = torch.cat([torch.zeros_like(padding_mask_src), padding_mask_tgt], dim=1)
 
 			# target token ids are one skipped and input token ids are one left
 			target_token_ids = input_token_ids[:, 1:]
 			input_token_ids = input_token_ids[:, :-1]
 			padding_mask = padding_mask[:, :-1]
+			loss_mask = loss_mask[:, 1:]
 
 			# we should also pass token_positions for posn embeddings
 			# fixed: these are calculated by the model itself
@@ -202,7 +235,7 @@ def train_model(config):
 			_, logits = model(input_token_ids, padding_mask)
 
 			# get the loss value
-			loss = loss_fxn(logits, target_token_ids, loss_mask=padding_mask)
+			loss = loss_fxn(logits, target_token_ids, loss_mask=loss_mask)
 
 			# do a backward pass
 			loss.backward()
