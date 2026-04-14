@@ -252,6 +252,66 @@ class Decoder_LM(torch.nn.Module):
 		return
 
 	@torch.no_grad
+	def sampling_top_p_top_k(
+		self,
+		probs,
+		top_p = None,
+		top_k = None,
+	):
+		"""
+		given probabilities from the model
+		apply top-p and top-k sampling
+		and return the sampled token ids
+		probs.shape = batch_size x vocab_size
+		"""
+
+		# base case if both top-p and top-k are None
+		if top_p is None and top_k is None:
+			sampled_ids = torch.multinomial(probs, num_samples=1).squeeze(-1)
+			return sampled_ids
+
+		# at this point at least one of top-p and top-k is not None
+		
+		# if top k is None, then set it to vocab size
+		if top_k is None:
+			top_k = probs.shape[1]
+
+		# get top-k probabilities and their indices
+		topk_probs, topk_indices = torch.topk(probs, top_k, dim=-1, sorted=True)
+
+		# if top-p is not None, then apply masking shenanigans
+		if top_p is not None:
+
+			# get the cumulative probability sum for top-k probabilities
+			cumulative_probability_sum = torch.cumsum(topk_probs, dim=-1)
+
+			# apply mask to the point where it crosses threshold
+			top_p_mask = cumulative_probability_sum > top_p
+
+			# actually we want to apply the mask AFTER the crossing point
+			# so we will shuffle the mask right by 1
+			top_p_mask[:, 1:] = top_p_mask[:, :-1].clone()
+
+			# and we want at least one token to have weight
+			top_p_mask[:, 0] = False
+
+			# set the probabilities for the mask as 0
+			topk_probs[top_p_mask] = 0.
+
+		# re-normalize the topk probabilities
+		topk_probs = topk_probs / topk_probs.sum(dim=-1, keepdim=True)
+
+		# now sample indices from top k probs
+		sampled_idxs = torch.multinomial(topk_probs, num_samples=1)
+
+		# now we will gather values along the -1 dimension on top k indices
+		# top k indices = batch_size x k
+		# we have index into top k, which we will gather for each batch
+		sampled_ids = torch.gather(topk_indices, -1, sampled_idxs).squeeze(-1)
+
+		return sampled_ids
+
+	@torch.no_grad
 	def generate(
 		self,
 		input_ids,
@@ -293,15 +353,15 @@ class Decoder_LM(torch.nn.Module):
 			logits = logits[:, -1, :]
 			# logits.shape = batch_size x vocab_size
 
-			# compute softmax here
-			probs = softmax(logits, -1, temperature)
+			# compute softmax here (after projection to fp32)
+			probs = softmax(logits.to(torch.float32), -1, temperature)
 
 			# sample token ids here
 			sampled_ids = None
 			if sampling is False:
 				sampled_ids = torch.argmax(probs, -1)
 			else:
-				sampled_ids = torch.multinomial(probs, num_samples=1).view(-1)
+				sampled_ids = self.sampling_top_p_top_k(probs, top_p, top_k)
 
 			# sampled_ids.shape = batch_size
 		

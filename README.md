@@ -150,8 +150,8 @@ python generate_interactive.py --config_filename ../config/generate.json
 		- [x] Greedy
 		- [x] Sampled
 		- [x] Max Tokens
-		- [ ] Top P
-		- [ ] Top K
+		- [x] Top P
+		- [x] Top K
 		- [x] Temperature
 		- [ ] Beam Search
 	- [ ] Naive KV Cache
@@ -170,4 +170,4 @@ python generate_interactive.py --config_filename ../config/generate.json
 	- [x] Think about ideal CE Loss given V (max=log(V), min or ideal = ??)
 	- [ ] How large a model to learn IID data? correlated data?
 	- [ ] Ablations
-	- [ ] Training for Seq2Seq Tasks
+	- [x] Training for Seq2Seq Tasks

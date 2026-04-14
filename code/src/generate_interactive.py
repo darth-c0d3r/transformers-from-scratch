@@ -35,7 +35,7 @@ def generate_interactive(config):
 
 	# step 4: do we want to apply stop token?
 	# true for sft model, false for completion model
-	apply_stop_token = True
+	apply_stop_token = False
 
 	# do a while true loop
 	while True:
@@ -59,7 +59,14 @@ def generate_interactive(config):
 		padding_mask = torch.tensor(padding_mask).to(device)
 
 		# do the generation step
-		_, output_ids = model.generate(input_ids=input_ids, padding_mask=padding_mask, max_new_tokens=16, sampling=False)
+		_, output_ids = model.generate(
+				input_ids=input_ids,
+				padding_mask=padding_mask,
+				max_new_tokens=16,
+				sampling=True,
+				top_k=16,
+				top_p=0.6,
+			)
 
 		# do the decoding
 		decoded_text = tokenizer.decode(output_ids[0].cpu().tolist())
