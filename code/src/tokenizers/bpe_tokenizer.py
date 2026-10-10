@@ -21,6 +21,8 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 
 import regex as re # this is a slightly faster version of default re library
 
+from utils import PrefixTree
+
 PRETOKENIZER_PATTERNS = {
 	"GPT2": r"""'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+""",
 	"TIKTOKEN": r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}++| ?\p{N}++| ?[^\s\p{L}\p{N}]++|\s++$|\s+(?!\S)|\s""",
@@ -216,6 +218,7 @@ class BPE_Tokenizer():
 			"base": self.encode_core_base,
 			"greedy": self.encode_core_greedy_2_pointer,
 			"fast": self.encode_core_fast,
+			"prefix": self.encode_core_greedy_prefix_tree,
 		}
 
 		# the default vocabulary contains index -> byte([index])
@@ -372,6 +375,41 @@ class BPE_Tokenizer():
 					encoded_token_ids.append(self.vocab_bytes2idx[candidate_token])
 					curr_idx += jump_size
 					break
+
+		return encoded_token_ids
+
+	def encode_core_greedy_prefix_tree(self, document):
+		"""
+		this is a more optimized implementation of greedy 2 pointer
+		uses a prefix tree to match the longest possible prefix
+		"""
+
+		# for fast tokenizer, we need to build the prefix tree
+		assert hasattr(self, "prefix_tree")
+
+		# convert the document to a byte-stream and token ids
+		input_token_ids = [b for b in document.encode(self.encoding)]
+
+		# start being greedy here
+		curr_idx = 0
+		encoded_token_ids = []
+
+		# go on while we're in the legal access zone
+		while curr_idx < len(input_token_ids):
+
+			# get the longest possible jump size with prefix match
+			jump_size = len(self.prefix_tree.getLongestPrefixMatch(input_token_ids, curr_idx))
+
+			# get the candidate token bytes
+			candidate_token = bytes(input_token_ids[curr_idx:curr_idx+jump_size])
+
+			# advance the curr token accordingly
+			curr_idx += jump_size
+
+			# we know for sure that bpe will always return at base case of 1 byte
+			# hence not accounting it separately here 
+			if candidate_token in self.vocab_bytes2idx:
+				encoded_token_ids.append(self.vocab_bytes2idx[candidate_token])
 
 		return encoded_token_ids
 
@@ -783,6 +821,7 @@ class BPE_Tokenizer():
 
 		# print(f"MERGED {pair} --> {merge_idx} | {merge_count}")
 
+		# no need to return this; updated in-place
 		return byte_pair_frequencies
 
 	def train_bpe(
@@ -939,6 +978,21 @@ class BPE_Tokenizer():
 
 		self.merge_forest = idx2tree
 		return total_trees
+
+	def build_prefix_tree(self):
+		"""
+		builds a prefix tree for the greedy encoder
+		"""
+
+		# start with an empty prefix tree
+		self.prefix_tree = PrefixTree()
+
+		# insert all items of vocab
+		for token_bytes in tqdm(self.vocab_bytes2idx):
+			raw_token_idx_list = [b for b in token_bytes]
+			self.prefix_tree.addToken(raw_token_idx_list)
+
+		return len(self.vocab_bytes2idx)
 
 	def clear_cache(self):
 		"""

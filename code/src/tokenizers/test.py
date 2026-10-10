@@ -91,6 +91,9 @@ def run_tests():
 	total_trees = tokenizer.build_merge_forest()
 	print(f"\nplanted {total_trees} trees in the merge forest\n")
 
+	prefix_tree_size = tokenizer.build_prefix_tree()
+	print(f"\ncreated a prefix tree of vocab size {prefix_tree_size}")
+
 	print(f"""\n{"="*60}\n""")
 
 	# ================================================================================ #
@@ -118,12 +121,14 @@ def run_tests():
 		print("mixed data; base\t", tokenizer.get_compression_ratio(data_joined_3, algorithm="base"))
 		print("mixed data; greedy\t", tokenizer.get_compression_ratio(data_joined_3, algorithm="greedy"))
 		print("mixed data; fast\t", tokenizer.get_compression_ratio(data_joined_3, algorithm="fast"))
+		print("mixed data; prefix\t", tokenizer.get_compression_ratio(data_joined_3, algorithm="prefix"))
 
 		print()
 
 		print("same dist data; base\t", tokenizer.get_compression_ratio(data_joined_1, algorithm="base"))
 		print("same dist data; greedy\t", tokenizer.get_compression_ratio(data_joined_1, algorithm="greedy"))
 		print("same dist data; fast\t", tokenizer.get_compression_ratio(data_joined_1, algorithm="fast"))
+		print("same dist data; prefix\t", tokenizer.get_compression_ratio(data_joined_1, algorithm="prefix"))
 
 	print(f"""\n{"="*60}\n""")
 
@@ -134,15 +139,16 @@ def run_tests():
 
 		time_s = time.time()
 		
-		for doc in dataset_1["train"]:
-			tokenizer.encode(
-				doc,
-				apply_pretokenizer=True,
-				skip_special_tokens=False,
-				concurrent=False,
-				algorithm="base",
-				cache=False,
-			)
+		for _ in range(10):
+			for doc in dataset_1["train"]:
+				tokenizer.encode(
+					doc,
+					apply_pretokenizer=True,
+					skip_special_tokens=False,
+					concurrent=False,
+					algorithm="base",
+					cache=False,
+				)
 
 		time_e = time.time()
 		print(f"base   | sequential | no cache   | tokenizer time = {time_e-time_s:.4f}s")
@@ -151,15 +157,16 @@ def run_tests():
 
 		time_s = time.time()
 		
-		for doc in dataset_1["train"]:
-			tokenizer.encode(
-				doc,
-				apply_pretokenizer=True,
-				skip_special_tokens=False,
-				concurrent=False,
-				algorithm="fast",
-				cache=False,
-			)
+		for _ in range(10):
+			for doc in dataset_1["train"]:
+				tokenizer.encode(
+					doc,
+					apply_pretokenizer=True,
+					skip_special_tokens=False,
+					concurrent=False,
+					algorithm="fast",
+					cache=False,
+				)
 
 		time_e = time.time()
 		print(f"fast   | sequential | no cache   | tokenizer time = {time_e-time_s:.4f}s")
@@ -168,15 +175,16 @@ def run_tests():
 
 		time_s = time.time()
 		
-		for doc in dataset_1["train"]:
-			tokenizer.encode(
-				doc,
-				apply_pretokenizer=True,
-				skip_special_tokens=False,
-				concurrent=False,
-				algorithm="greedy",
-				cache=False,
-			)
+		for _ in range(10):
+			for doc in dataset_1["train"]:
+				tokenizer.encode(
+					doc,
+					apply_pretokenizer=True,
+					skip_special_tokens=False,
+					concurrent=False,
+					algorithm="greedy",
+					cache=False,
+				)
 
 		time_e = time.time()
 		print(f"greedy | sequential | no cache   | tokenizer time = {time_e-time_s:.4f}s")
@@ -185,15 +193,34 @@ def run_tests():
 
 		time_s = time.time()
 		
-		for doc in dataset_1["train"]:
-			tokenizer.encode(
-				doc,
-				apply_pretokenizer=True,
-				skip_special_tokens=False,
-				concurrent=False,
-				algorithm="base",
-				cache=True,
-			)
+		for _ in range(10):
+			for doc in dataset_1["train"]:
+				tokenizer.encode(
+					doc,
+					apply_pretokenizer=True,
+					skip_special_tokens=False,
+					concurrent=False,
+					algorithm="prefix",
+					cache=False,
+				)
+
+		time_e = time.time()
+		print(f"prefix | sequential | no cache   | tokenizer time = {time_e-time_s:.4f}s")
+
+		# ================================================== #
+
+		time_s = time.time()
+		
+		for _ in range(10):		
+			for doc in dataset_1["train"]:
+				tokenizer.encode(
+					doc,
+					apply_pretokenizer=True,
+					skip_special_tokens=False,
+					concurrent=False,
+					algorithm="base",
+					cache=True,
+				)
 
 		time_e = time.time()
 		print(f"base   | sequential | with cache | tokenizer time = {time_e-time_s:.4f}s")
@@ -204,18 +231,40 @@ def run_tests():
 
 		time_s = time.time()
 		
-		batch_encode(
-			tokenizer,
-			dataset_1["train"],
-			parallel=False,
-			n_parts=None,
-			apply_pretokenizer=True,
-			skip_special_tokens=False,
-			concurrent=False,
-			algorithm="base",
-			cache=False,
-			padding=None,
-		)
+		for _ in range(10):		
+			for doc in dataset_1["train"]:
+				tokenizer.encode(
+					doc,
+					apply_pretokenizer=True,
+					skip_special_tokens=False,
+					concurrent=False,
+					algorithm="prefix",
+					cache=True,
+				)
+
+		time_e = time.time()
+		print(f"prefix   | sequential | with cache | tokenizer time = {time_e-time_s:.4f}s")
+
+		tokenizer.clear_cache()
+
+		# ================================================== #
+
+
+		time_s = time.time()
+		
+		for _ in range(10):		
+			batch_encode(
+				tokenizer,
+				dataset_1["train"],
+				parallel=False,
+				n_parts=None,
+				apply_pretokenizer=True,
+				skip_special_tokens=False,
+				concurrent=False,
+				algorithm="base",
+				cache=False,
+				padding="right",
+			)
 
 		time_e = time.time()
 		print(f"base   | batched    | no cache   | tokenizer time = {time_e-time_s:.4f}s")
@@ -225,47 +274,51 @@ def run_tests():
 	# ================================================================================ #
 	# PADDING TESTS AND VIS
 
-	text_batch = tokenizer.apply_chat_template(dataset_1["val"][:5])
+	if True:
 
-	print("===== INPUT TEXT =====")
-	print("\n".join(text_batch))
-	print()
+		text_batch = tokenizer.apply_chat_template(dataset_1["val"][:5])
 
-	print("===== ENCODED TOKENS =====")
-	for doc in text_batch:
-		token_ids = tokenizer.encode(doc)
-		# print(token_ids)
-		print(tokenizer.convert_token_ids_to_bytes(token_ids))
+		print("===== INPUT TEXT =====")
+		print("\n".join(text_batch))
+		print()
 
-	encoded_batch, padding_mask = batch_encode(tokenizer, text_batch, cache=True, padding="right")
-	assert all([len(x) == len(encoded_batch[0]) for x in encoded_batch])
-	assert all([len(x) == len(padding_mask[0]) for x in padding_mask])
-	print()
-	print(f"encoded_batch = {encoded_batch}\n")
-	print(f"padding_mask = {padding_mask}")
-	print()
+		print("===== ENCODED TOKENS =====")
+		for doc in text_batch:
+			token_ids = tokenizer.encode(doc)
+			# print(token_ids)
+			print(tokenizer.convert_token_ids_to_bytes(token_ids))
+
+		encoded_batch, padding_mask = batch_encode(tokenizer, text_batch, cache=True, padding="right")
+		assert all([len(x) == len(encoded_batch[0]) for x in encoded_batch])
+		assert all([len(x) == len(padding_mask[0]) for x in padding_mask])
+		print()
+		print(f"encoded_batch = {encoded_batch}\n")
+		print(f"padding_mask = {padding_mask}")
+		print()
 
 	print(f"""\n{"="*60}\n""")
 
 	# ================================================================================ #
 	# TEST LOADING AND SAVING TOKENIZER PARTS
 
-	# this part checks if saving and loading tokenizer works
-	tokenizer.save_tokenizer("./tokenizer_dune_part_1/")
+	if True:
 
-	# load a fresh tokenizer and see if it same as tokenizer 1
-	tokenizer_2 = BPE_Tokenizer()
-	tokenizer_2.load_tokenizer("./tokenizer_dune_part_1/")
+		# this part checks if saving and loading tokenizer works
+		tokenizer.save_tokenizer("./tokenizer_dune_part_1/")
 
-	ignore_keys = ["tokenization_algorithms", "merge_forest", "encoder_cache"]
-	
-	# assert vars(tokenizer).keys() == vars(tokenizer_2).keys()
-	for k in vars(tokenizer).keys():
-		if k in ignore_keys:
-			continue
-		assert vars(tokenizer)[k] == vars(tokenizer_2)[k], k
+		# load a fresh tokenizer and see if it same as tokenizer 1
+		tokenizer_2 = BPE_Tokenizer()
+		tokenizer_2.load_tokenizer("./tokenizer_dune_part_1/")
 
-	print(f"loading and saving tokenizer is working fine")
+		ignore_keys = ["tokenization_algorithms", "merge_forest", "encoder_cache", "prefix_tree"]
+		
+		# assert vars(tokenizer).keys() == vars(tokenizer_2).keys()
+		for k in vars(tokenizer).keys():
+			if k in ignore_keys:
+				continue
+			assert vars(tokenizer)[k] == vars(tokenizer_2)[k], k
+
+		print(f"loading and saving tokenizer is working fine")
 
 	print(f"""\n{"="*60}\n""")
 
