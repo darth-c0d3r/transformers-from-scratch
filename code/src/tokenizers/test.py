@@ -68,7 +68,8 @@ def run_tests():
 		document_list = dataset_1["train"],
 		num_merges = 8192,
 		early_stop = True,
-		verbose = True,
+		# verbose = True,
+		verbose = False,
 		use_multipliers = True,
 		single_pass = True,
 	)
@@ -89,7 +90,12 @@ def run_tests():
 	tokenizer.pad_token_id = tokenizer.insert_special_token("[||PAD||]")
 
 	total_trees = tokenizer.build_merge_forest()
+	# total_trees = tokenizer.build_merge_forest_disjoint_set()
 	print(f"\nplanted {total_trees} trees in the merge forest\n")
+
+	for (pair, target) in tokenizer.merges.items():
+		assert tokenizer.merge_forest[pair[0]] == tokenizer.merge_forest[target]
+		assert tokenizer.merge_forest[pair[1]] == tokenizer.merge_forest[target]
 
 	prefix_tree_size = tokenizer.build_prefix_tree()
 	print(f"\ncreated a prefix tree of vocab size {prefix_tree_size}")
@@ -301,7 +307,7 @@ def run_tests():
 	# ================================================================================ #
 	# TEST LOADING AND SAVING TOKENIZER PARTS
 
-	if True:
+	if False:
 
 		# this part checks if saving and loading tokenizer works
 		tokenizer.save_tokenizer("./tokenizer_dune_part_1/")

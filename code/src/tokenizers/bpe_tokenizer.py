@@ -11,6 +11,7 @@ import shutil
 from pathlib import Path
 import functools
 import multiprocessing as mp
+from collections import Counter
 
 import time
 import json
@@ -21,7 +22,7 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 
 import regex as re # this is a slightly faster version of default re library
 
-from utils import PrefixTree
+from utils import PrefixTree, DisjointSet
 
 PRETOKENIZER_PATTERNS = {
 	"GPT2": r"""'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+""",
@@ -917,67 +918,25 @@ class BPE_Tokenizer():
 
 	def build_merge_forest(self):
 		"""
-		this function build the merge forest
-		which is needed for the fast tokenization
-
-		current minor bug: if there are total 2 trees,
-		then can be [0, 2] and not [0, 1]
-
-		this is better implemented using union-merge
+		the optimized implementation of building a merge forest
 		"""
 
-		# initialize index to tree mapping with None
-		idx2tree = {k: None for k in self.vocab}
-
-		# initialize curr_tree_idx = 0
-		curr_tree_idx = 0
-		total_trees = 0
+		# create a disjoint set class of vocab size
+		disjoint_set = DisjointSet(len(self.vocab))
 
 		# iterate over all merges
 		for (pair, target) in tqdm(self.merges.items()):
 
-			# target will always be None, mathematically
+			# merge both pairs and the target
+			disjoint_set.union(pair[0], pair[1])
+			disjoint_set.union(pair[0], target)
 
-			# case 1: pair[0] and pair[1] are both None
-			# a new tree is planted in the forest
-			if idx2tree[pair[0]] is None and idx2tree[pair[1]] is None:
-				idx2tree[pair[0]] = curr_tree_idx
-				idx2tree[pair[1]] = curr_tree_idx
-				idx2tree[target] = curr_tree_idx
-				curr_tree_idx += 1
-				total_trees += 1
-				continue
+		self.merge_forest = [disjoint_set.find(i) for i in range(len(self.vocab))]
 
-			# case 2: exactly one of the 2 pairs is None
+		print(f"\ncreated a merge forest of size {disjoint_set.num_sets}")
+		print(f"set size distribution: {Counter(disjoint_set.count)}")
 
-			# new branch is added to pair 1's tree
-			if idx2tree[pair[0]] is None:
-				idx2tree[pair[0]] = idx2tree[pair[1]]
-				idx2tree[target] = idx2tree[pair[1]]
-				continue
-
-			# new branch is added to pair 0's tree
-			if idx2tree[pair[1]] is None:
-				idx2tree[pair[1]] = idx2tree[pair[0]]
-				idx2tree[target] = idx2tree[pair[0]]
-				continue
-
-			# case 3: neither is None, but they're in same tree
-			# target gets added to the tree
-			if idx2tree[pair[0]] == idx2tree[pair[1]]:
-				idx2tree[target] = idx2tree[pair[0]]
-				continue
-
-			# case 4: neither is None, and they're in different trees
-			# merge the trees to a single tree
-			older_tree = min(idx2tree[pair[0]], idx2tree[pair[1]])
-			newer_tree = max(idx2tree[pair[0]], idx2tree[pair[1]])
-			idx2tree = {k: v if v != newer_tree else older_tree for (k, v) in idx2tree.items()}
-			idx2tree[target] = older_tree
-			total_trees -= 1
-
-		self.merge_forest = idx2tree
-		return total_trees
+		return disjoint_set.num_sets
 
 	def build_prefix_tree(self):
 		"""

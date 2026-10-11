@@ -66,3 +66,82 @@ class PrefixTree:
 
 		# else append current char
 		return [byte_seq[idx]] + best_match_child
+
+class DisjointSet:
+	"""
+	the disjoint set class will help in implementing the
+	"fast" encoding algorithm
+	we will put all the co-ocurring tokens in a single set
+	that way, for r.g., for multi-lingual vocabs
+	we can merge multiple tokens at the same time
+	"""
+
+	def __init__(self, size):
+		"""
+		initialize a disjoint set class of size
+		"""
+
+		# initially, all items are in their own sets
+		self.parent = [i for i in range(size)]
+
+		# keep track of counts under each tree (only relevnt for top level)
+		self.count = [1] * size
+
+		# keep a track of num sets
+		self.num_sets = size
+
+	def find(self, idx):
+		"""
+		return the base set of item idx
+		implements an optimization
+		"""
+
+		# base case
+		if self.parent[idx] == idx:
+			return idx
+
+		# otherwise get the next node
+		next_node = self.parent[idx]
+
+		# get the base set of next node
+		top_node = self.find(next_node)
+
+		# create a direct connection
+		self.parent[idx] = top_node
+
+		return top_node
+
+	def union(self, idx_1, idx_2):
+		"""
+		take a union of sets containing idx_1 and idx_2
+		"""
+
+		# get parents of both nodes
+		p1 = self.find(idx_1)
+		p2 = self.find(idx_2)
+
+		# if they are both already in same set, return
+		if p1 == p2:
+			return
+
+		# otherwise, pin the smaller tree onto larger one
+		if self.count[p1] < self.count[p2]:
+			p1, p2 = p2, p1
+
+		# count[p1] >= count[p2]
+		# add p2 to p1
+		self.parent[p2] = p1
+		self.count[p1] += self.count[p2]
+		self.count[p2] = None
+
+		# reduce the set size by 1
+		self.num_sets -= 1
+
+		return
+
+	def set_size(self, idx):
+		"""
+		return the set size of an idx
+		"""
+
+		return self.count[self.find(idx)]
