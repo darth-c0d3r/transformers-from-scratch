@@ -388,7 +388,7 @@ class GroupedQueryLatentAttention(torch.nn.Module):
 		head_dim,
 		latent_attn_dim = None, # set to None from disabling MHLA
 		num_heads = 1, # set to 1 for disabling MHA
-		num_attn_groups = 1, # num_attn_groups = 1 is for mqa
+		num_attn_groups = 1, # num_attn_groups = 1 is for MQA
 		causal = True, # only makes sense for self-attn; false for cross-attn
 		device = None, # either None or a torch.device object
 		dtype = torch.float32, # either None or a torch.dtype object
@@ -414,7 +414,7 @@ class GroupedQueryLatentAttention(torch.nn.Module):
 		self.dtype = dtype
 
 		# num heads should be divisible by num groups
-		assert num_heads % num_attn_groups == 0, f"num_heads ({num_heads}) not divisible by num_attn_groups ({num_attn_groups})"
+		assert num_heads % num_attn_groups == 0, f"error: num_heads ({num_heads}) not divisible by num_attn_groups ({num_attn_groups})"
 		self.group_size = self.num_heads // self.num_attn_groups
 
 		# handle the layer for latent projections

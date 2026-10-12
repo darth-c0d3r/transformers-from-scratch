@@ -22,7 +22,7 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 
 import regex as re # this is a slightly faster version of default re library
 
-from utils import PrefixTree, DisjointSet
+from .utils import PrefixTree, DisjointSet
 
 PRETOKENIZER_PATTERNS = {
 	"GPT2": r"""'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+""",

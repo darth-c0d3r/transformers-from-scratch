@@ -35,6 +35,7 @@ class Decoder_LM(torch.nn.Module):
 		num_heads = 1,
 		num_attn_groups = 1,
 		num_layers = 4,
+		num_loops = 1, # for looped transformer implementation
 		max_seq_len = 4092,
 		posn_embeddings = "nope",
 		device = None, # either None or a torch.device object
@@ -58,6 +59,7 @@ class Decoder_LM(torch.nn.Module):
 		self.num_heads = num_heads
 		self.num_attn_groups = num_attn_groups
 		self.num_layers = num_layers
+		self.num_loops = num_loops
 		self.max_seq_len = max_seq_len
 		self.posn_embeddings = posn_embeddings
 		self.device = device
@@ -160,14 +162,15 @@ class Decoder_LM(torch.nn.Module):
 
 		# step 2: iterate over all decoder only layers
 		attn_weights_list = []
-		for layer in self.model:
-			attn_weights, output_tensor = layer(
-				output_tensor,
-				rope_module = self.rope_module,
-				padding_mask = padding_mask,
-				token_positions = token_positions,
-			)
-			attn_weights_list.append(attn_weights)
+		for _ in range(self.num_loops):
+			for layer in self.model:
+				attn_weights, output_tensor = layer(
+					output_tensor,
+					rope_module = self.rope_module,
+					padding_mask = padding_mask,
+					token_positions = token_positions,
+				)
+				attn_weights_list.append(attn_weights)
 
 		# step 3: final layer norm
 		output_tensor = self.layer_norm(output_tensor)
@@ -235,6 +238,7 @@ class Decoder_LM(torch.nn.Module):
 			"num_heads": self.num_heads,
 			"num_attn_groups": self.num_attn_groups,
 			"num_layers": self.num_layers,
+			"num_loops": self.num_loops,
 			"max_seq_len": self.max_seq_len,
 			"posn_embeddings": self.posn_embeddings,
 			"dtype": str(self.dtype),
