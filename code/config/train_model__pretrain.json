@@ -10,7 +10,7 @@
 	"tokenizer": "../../logs/dune_part_1/tokenizer__full/",
 
 	// output details
-	"output_dir": "../../logs/dune_part_1/model__6/",
+	"output_dir": "../../logs/dune_part_1/model__7/",
 
 	// model details
 	// either build from scratch or load from ckpt
@@ -22,7 +22,7 @@
 		"latent_attn_dim": 128, // set null if don't want mhla
 		"num_heads": 16,
 		"num_attn_groups": 4,
-		"num_layers": 8,
+		"num_layers": 4,
 		"num_loops": 2,
 		"max_seq_len": 4096,
 		"posn_embeddings": "rope", // ["rope", "sinusoidal", "nope"]
