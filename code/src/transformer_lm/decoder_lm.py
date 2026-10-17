@@ -38,6 +38,7 @@ class Decoder_LM(torch.nn.Module):
 		num_loops = 1, # for looped transformer implementation
 		max_seq_len = 4092,
 		posn_embeddings = "nope",
+		attn_type = "sdpa",
 		device = None, # either None or a torch.device object
 		dtype = None, # either None or a torch.dtype object
 		init = True,
@@ -62,6 +63,7 @@ class Decoder_LM(torch.nn.Module):
 		self.num_loops = num_loops
 		self.max_seq_len = max_seq_len
 		self.posn_embeddings = posn_embeddings
+		self.attn_type = attn_type
 		self.device = device
 		self.dtype = dtype
 
@@ -103,6 +105,7 @@ class Decoder_LM(torch.nn.Module):
 				latent_attn_dim = self.latent_attn_dim,
 				num_heads = self.num_heads,
 				num_attn_groups = self.num_attn_groups,
+				attn_type = self.attn_type,
 				device = self.device,
 				dtype = self.dtype,
 				init = init,
@@ -196,6 +199,13 @@ class Decoder_LM(torch.nn.Module):
 		# step 2: load config file
 		with open(os.path.join(dir_path, "model_config.json"), "r") as f:
 			model_config = json.loads("".join(f.readlines()))
+
+
+		# print the model config being loaded
+		print("\n" + "="*50)
+		print(f"loading model from config")
+		print(json.dumps(model_config, indent=4))		
+		print("="*50 + "\n")
 
 		# using eval is slightly unsafe as it can execute arbitrary code
 		model_config["dtype"] = eval(model_config["dtype"])

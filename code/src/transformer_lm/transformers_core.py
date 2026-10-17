@@ -140,14 +140,14 @@ def merge_causal_and_padding_masks(padding_mask_data, seq_len_data, causal, devi
 	# padding_mask.shape = batch_size x 1 x 1 x seq_len_data
 	# this as is would also work
 	if padding_mask_data is not None:
-		attn_mask = padding_mask_data.unsqueeze(1).unsqueeze(1)
+		attn_mask = padding_mask_data.unsqueeze(1).unsqueeze(1).to(device)
 
 	if causal is True: # only true for self-attn, false for cross-attn
 		causal_mask = get_causal_attention_mask(seq_len_data).to(device)
+		causal_mask = causal_mask.unsqueeze(0).unsqueeze(0)
 
 		# merge causal mask and padding mask here
 		if padding_mask_data is not None:
-			causal_mask = causal_mask.unsqueeze(0).unsqueeze(0)
 			attn_mask = attn_mask * causal_mask
 
 			# very subtle:
@@ -199,9 +199,69 @@ def scaled_dot_product_attention(
 
 	return attn_weights, output
 
+def additive_attention(
+	queries,
+	keys,
+	values,
+	attn_mask = None,
+):
+	"""
+	implements the parameter free version of bahdanau attention
+	computing this attention is inherently more expensive than sdpa
+	because of the larger intermediate tensor computation
+	which, for sdpa neatly becomes a simple matrix multiplication
+	queries.shape = ... x seq_len_queries x d_k
+	keys.shape = ... x seq_len_data x d_k
+	values.shape = ... x seq_len_data x d_v
+	output.shape = ... x seq_len_queries x d_v
+	attn_mask.shape = ... x seq_len_queries x seq_len_data
+	attn_mask is binary, either 0 or 1 elements
+	"""
+
+	# we want to have an intermediate tensor
+	# such that S[i][j][x] = Aix + Bjx
+	similarity = queries.unsqueeze(-2) + keys.unsqueeze(-3)
+
+	# now we can apply tanh and add across -1 dimension
+	# that way, similarity will be lq x ld
+	similarity = torch.sum(torch.tanh(similarity), dim=-1)
+
+	# if attn mask is not None
+	# set similarity scores of masked out values
+	# to be effectively - inf
+	if attn_mask is not None:
+		# similarity += (attn_mask-1)*1e20
+		similarity.masked_fill_(attn_mask == 0, float('-inf'))
+
+	# similarity.shape = ... x seq_len_queries x seq_len_data
+	# we want to compute softmax over keys
+	attn_weights = softmax(similarity, -1)
+
+	# now we want to multiply by values
+	# attn_weights.shape = ... x seq_len_queries x seq_len_data
+	# values.shape = ... x seq_len_data x d_v
+	output = attn_weights @ values
+	# output.shape = ... x seq_len_queries x d_v
+
+	return attn_weights, output
+
+def compute_attn(
+	attn_type, **kwargs
+):
+	"""
+	calls the aptattn fxn
+	"""
+
+	FXN_MAP = {
+		"sdpa": scaled_dot_product_attention,
+		"additive": additive_attention,
+	}
+
+	return FXN_MAP[attn_type](**kwargs)
+
 class MultiHeadAttention(torch.nn.Module):
 	"""
-	DEPRECATED SINCE GQA COVERS MHA & MQA
+	DEPRECATED SINCE GQA COVERS MHA & MQA (everything)
 
 	class for applying multi head attention
 	rope embeddings is optional and provided in forward
@@ -389,6 +449,7 @@ class GroupedQueryLatentAttention(torch.nn.Module):
 		latent_attn_dim = None, # set to None from disabling MHLA
 		num_heads = 1, # set to 1 for disabling MHA
 		num_attn_groups = 1, # num_attn_groups = 1 is for MQA
+		attn_type = "sdpa", # one of the supported attention functions
 		causal = True, # only makes sense for self-attn; false for cross-attn
 		device = None, # either None or a torch.device object
 		dtype = torch.float32, # either None or a torch.dtype object
@@ -409,9 +470,13 @@ class GroupedQueryLatentAttention(torch.nn.Module):
 		self.latent_attn_dim = latent_attn_dim
 		self.num_heads = num_heads
 		self.num_attn_groups = num_attn_groups
+		self.attn_type = attn_type
 		self.causal = causal
 		self.device = device
 		self.dtype = dtype
+
+		# attention type should be among the supported ones
+		assert self.attn_type in ["sdpa", "additive"], f"attn type {attn_type} not supported"
 
 		# num heads should be divisible by num groups
 		assert num_heads % num_attn_groups == 0, f"error: num_heads ({num_heads}) not divisible by num_attn_groups ({num_attn_groups})"
@@ -542,7 +607,8 @@ class GroupedQueryLatentAttention(torch.nn.Module):
 		projection_v = projection_v.repeat((1, self.group_size, 1, 1))
 
 		# get the output after applying sdpa function
-		attn_weights, output_batch = scaled_dot_product_attention(
+		attn_weights, output_batch = compute_attn(
+			self.attn_type,
 			queries = projection_q,
 			keys = projection_k,
 			values = projection_v,
@@ -804,6 +870,7 @@ class DecoderOnlyTransformerBlock(torch.nn.Module):
 		latent_attn_dim,
 		num_heads,
 		num_attn_groups,
+		attn_type,
 		device = None, # either None or a torch.device object
 		dtype = None, # either None or a torch.dtype object
 		init = True,
@@ -823,6 +890,7 @@ class DecoderOnlyTransformerBlock(torch.nn.Module):
 		self.latent_attn_dim = latent_attn_dim
 		self.num_heads = num_heads
 		self.num_attn_groups = num_attn_groups
+		self.attn_type = attn_type
 		self.device = device
 		self.dtype = dtype
 
@@ -854,6 +922,7 @@ class DecoderOnlyTransformerBlock(torch.nn.Module):
 			num_heads = self.num_heads,
 			latent_attn_dim = self.latent_attn_dim,
 			num_attn_groups = self.num_attn_groups,
+			attn_type = self.attn_type,
 			causal = True,
 			device = self.device,
 			dtype = self.dtype,
