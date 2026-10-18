@@ -37,7 +37,7 @@ class Decoder_LM(torch.nn.Module):
 		num_layers = 4,
 		num_loops = 1, # for looped transformer implementation
 		max_seq_len = 4092,
-		posn_embeddings = "nope",
+		posn_embeddings = "rope",
 		attn_type = "sdpa",
 		device = None, # either None or a torch.device object
 		dtype = None, # either None or a torch.dtype object
@@ -78,7 +78,7 @@ class Decoder_LM(torch.nn.Module):
 		self.token_embeddings_module = TokenEmbeddings(
 			vocab_size = self.vocab_size,
 			model_dim = self.model_dim,
-			posn_embeddings = self.posn_embeddings == "sinusoidal",
+			posn_embeddings = (self.posn_embeddings == "sinusoidal"),
 			max_seq_len = self.max_seq_len,
 			device = self.device,
 			dtype = self.dtype,
@@ -200,7 +200,6 @@ class Decoder_LM(torch.nn.Module):
 		with open(os.path.join(dir_path, "model_config.json"), "r") as f:
 			model_config = json.loads("".join(f.readlines()))
 
-
 		# print the model config being loaded
 		print("\n" + "="*50)
 		print(f"loading model from config")
@@ -251,6 +250,7 @@ class Decoder_LM(torch.nn.Module):
 			"num_loops": self.num_loops,
 			"max_seq_len": self.max_seq_len,
 			"posn_embeddings": self.posn_embeddings,
+			"attn_type": self.attn_type,
 			"dtype": str(self.dtype),
 		}
 

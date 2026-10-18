@@ -421,6 +421,12 @@ class MultiHeadAttention(torch.nn.Module):
 
 class GroupedQueryLatentAttention(torch.nn.Module):
 	"""
+	encapsulates the following attention types
+	multi-head attention
+	multi-query attention
+	grouped-query attention
+	multi-head latent attention
+
 	class for applying multi head attention
 	rope embeddings is optional and provided in forward
 	write this in a way that it works for
@@ -430,6 +436,7 @@ class GroupedQueryLatentAttention(torch.nn.Module):
 
 	we only need attn mask for keys & values (data), not for queries
 	if there is padding in queries, it'll be handled later anyway
+	by not computing loss for those tokens
 
 	the grouped query attention implementations starts from mha
 	multi query attention is a special case of gqa (num_attn_groups = 1)
@@ -774,7 +781,7 @@ class Linear(torch.nn.Module):
 class FFN_with_SwiGLU(torch.nn.Module):
 	"""
 	class for the feed forward network in the decoder block
-	decoder block consists of ffn and sel-attention
+	decoder block consists of ffn and self-attention
 	this is one part of the decoder block
 	the non linearity used here is SwiGLU
 	which has its own gated weights as well

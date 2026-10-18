@@ -63,7 +63,7 @@ def generate_interactive(config):
 				input_ids=input_ids,
 				padding_mask=padding_mask,
 				max_new_tokens=16,
-				sampling=True,
+				sampling=False,
 				top_k=16,
 				top_p=0.6,
 			)
