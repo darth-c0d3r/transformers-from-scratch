@@ -59,23 +59,39 @@ def generate_interactive(config):
 		padding_mask = torch.tensor(padding_mask).to(device)
 
 		# do the generation step
-		_, output_ids = model.generate(
+		num_beams = 2
+		num_samples = 2
+		generated_data = model.generate(
 				input_ids=input_ids,
 				padding_mask=padding_mask,
 				max_new_tokens=16,
-				sampling=False,
+				sampling=True,
 				top_k=16,
 				top_p=0.6,
+				num_beams=num_beams,
+				num_samples=num_samples,
 			)
 
+		# get the output ids
+		output_ids = generated_data["output_ids"]
+
+		# get the model confidence score
+		sampled_probs = generated_data["sampled_probs"]
+
+		total_confidence_list = model.get_total_prob_score(sampled_probs)[0].cpu().tolist()
+
 		# do the decoding
-		decoded_text = tokenizer.decode(output_ids[0].cpu().tolist())
+		decoded_text_list = [tokenizer.decode(output_ids[0][idx].cpu().tolist()) for idx in range(num_samples)]
 
 		# stop the timer
 		e = time.time()
 
-		print(f"> output: {decoded_text}")
-		print(f"> generated {output_ids.shape[1]} tokens in {e-s:.2f}s ({output_ids.shape[1]/(e-s):.2f} tok/s)")
+		for decoded_text, confidence in zip(decoded_text_list, total_confidence_list):
+			print()
+			print(f"> output: {decoded_text}\t|\t(score = {confidence:.3f})")
+			# print(f"> probabilities: {sampled_probs[0].cpu().tolist()}")
+		
+		print(f"\n> generated {output_ids.numel()} tokens in {e-s:.2f}s ({output_ids.numel()/(e-s):.2f} tok/s)\n")
 
 
 
