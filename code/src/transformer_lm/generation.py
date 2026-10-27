@@ -33,7 +33,7 @@ class GenerationMixin:
 		# now multiple along dimension -1
 		return torch.prod(probs, -1)
 
-	@torch.no_grad
+	@torch.no_grad()
 	def generate_beam_search(
 		self,
 		input_ids,
@@ -44,24 +44,48 @@ class GenerationMixin:
 		top_p = None,
 		top_k = None,
 		num_beams = None,
+		diverse_sampling = False,
 		return_full_seq = False,
 	):
 		"""
-		another very elegant implementation
-		use the generate_beam_search as merely a wrapper
-		and for each token, reuse the generate function for sampling
-		always return num_beams amount of samples
+		returns a dict with 3 keys (same as .generate)
+		
+		return {
+			"attn_weights_list": attn_weights_list,
+			"sampled_probs": sampled_probs,
+			"output_ids": input_ids,
+		}
+
+		attn_weights_list.shape = num_layers x batch_size x num_samples x num_heads x seq_len x seq_len
+		sampled_probs.shape = batch_size x num_samples x seq_len
+		output_ids = batch_size x num_samples x seq_len
+
+		one of the problems with beam search could be
+		that while we're sampling, the k highest scoring sequences might only differ in final position
+		and that too because we're forcing k different samples at each step with top-k
+
+		so for now, our diverse implementation is to have k branches and then expand each
+		but rather than taking a global top-k, take top-1 per branch (if diverse is set to true)
+
+		in general, there are other ways to implement diversity
+		but since this is a learning exercise, we'll take this approach
+
 		"""
 
-		# base case for sanity
+		# base case - if num beams is 0 or None
 		if (num_beams is None) or (num_beams <= 1):
 			return self.generate(
-					input_ids=input_ids, padding_mask=padding_mask, max_new_tokens=max_new_tokens, 
-					sampling=sampling, temperature=temperature, top_p=top_p, top_k=top_k,
-					num_beams=None, num_samples=1, return_full_seq=return_full_seq
+					input_ids=input_ids, padding_mask=padding_mask, max_new_tokens=max_new_tokens,
+					sampling=sampling, temperature=temperature, top_p=top_p, top_k=top_k, num_beams=None,
+					num_samples=1, return_full_seq=return_full_seq
 				)
 
-		# now we will do the beam search
+		# if sampling is true, just print a warning
+		if sampling is True:
+			print(f"> sampling not supported for beam search; proceeding with greedy beam search;")
+
+		# input_ids.shape = batch_size x seq_len
+		# padding_mask.shape = batch_size x seq_len
 
 		# keep track of batch_size and input seq len
 		batch_size = input_ids.shape[0]
@@ -71,115 +95,163 @@ class GenerationMixin:
 		if max_new_tokens is None:
 			max_new_tokens = self.max_seq_len - input_seq_len
 
-		# upfront, we will repeat input_ids k times
-		input_ids = torch.repeat_interleave(input_ids, num_beams, dim=0)
-		if padding_mask is not None:
-			padding_mask = torch.repeat_interleave(padding_mask, num_beams, dim=0)
-
-		# input_ids.shape = batch_size * k x seq_len
-		# padding_mask.shape = batch_size * k x seq_len
-
-		# we keep a track of sampled probabilities as a list
-		# here, instead of keeping it as a list of probabilities
-		# at each token output, we'll directly maintain a tensor
-		# sampled_probs.shape = batch_size x num_beams x seq_len
-		# we'll start with a tensor of seq len 1 and value = 1
-		
-		sampled_probs = torch.ones((batch_size, num_beams, 1), dtype=torch.float32, device=input_ids.device)
-		# sampled_probs.shape = batch_size x num_beams x seq_len 
+		# initially, sampled probabilities is None
+		# at any other point, this is batch_size * k x seq_len
+		sampled_probs = None
 
 		# start generating and appending to input_ids
-		for _ in tqdm(range(max_new_tokens), desc="beaming..."):
+		for step_idx in tqdm(range(max_new_tokens), desc="beaming...", disable=False):
 
-			# at each step, we'll call the generate function
-			# with num_beams = None, max_new_tokens = 1
-			# num_samples = num_beams
+			# ============================================================ #
+			# BASIC FWD PASS AND SAMPLING
 
-			generated_data = self.generate(
-					input_ids=input_ids, padding_mask=padding_mask, max_new_tokens=1,
-					sampling=sampling, temperature=temperature, top_p=top_p, top_k=top_k,
-					num_beams=None, num_samples=num_beams, return_full_seq=True, disable_tqdm=True
-				)
+			# do a forward pass to get output logits
+			attn_weights_list, logits = self.forward(input_ids, padding_mask)
 
-			# generated data returns 3 things - output ids, attention scores, probabilities
-			# we only care about output ids and probabilities
-			# to return attention scores properly, we'll still reshape them correctly
+			# attn_weights_list.shape = num_layers x batch_size * k x num_heads x seq_len x seq_len
+			# logits.shape = batch_size * k x seq_len_current x vocab_size
 
-			# output_ids.shape = batch_size * k x k x seq_len
-			# attn_weight_list.shape = num_layers x batch_size * k x k x ...
-			# sampled_probs.shape = batch_size * k x k x 1
+			logits = logits[:, -1, :]
+			# logits.shape = batch_size * k x vocab_size
 
-			# we'll convert all of these to batch_size x k*k x ...
-			# this will enable us to directly compare and sample
+			# compute softmax here (after projection to fp32)
+			probs = softmax(logits.to(torch.float32), -1, temperature)
 
-			# ======================================== #
-			# reshape to help with sampling
+			# now, for each input element, we'll select top k elements
+			# get top-k probabilities and their indices
+			topk_probs, topk_indices = torch.topk(probs, num_beams, dim=-1, sorted=True)
+			# topk.shape = batch_size * k x k
 
-			input_ids = generated_data["output_ids"].reshape(batch_size, num_beams * num_beams, -1)
-			sampled_probs_current = generated_data["sampled_probs"].reshape(batch_size, num_beams * num_beams, 1)
+			# ============================================================ #
+			# SPECIAL PROCESSING FOR STEP 0
 
-			awl = generated_data["attn_weights_list"]
-			awl = awl.reshape(awl.shape[0], batch_size, num_beams * num_beams, *awl.shape[3:])
+			# do the special case processing for step 0
+			if step_idx == 0:
 
-			# now is the time to do crazy stuff by picking up top samples
-			sampled_probs = torch.concat([torch.repeat_interleave(sampled_probs, num_beams, dim=1), sampled_probs_current], dim=-1)
-			# sampled_probs.shape = batch_size x k*k x seq_len
+				# update input_ids and padding mask
 
-			# ======================================== #
-			# actual sampling process itself
+				# batch_size x seq_len --> batch_size * k x seq_len
+				input_ids = torch.repeat_interleave(input_ids, num_beams, dim=0)
+				input_ids = torch.cat([input_ids, topk_indices.reshape((batch_size * num_beams, 1))], dim=-1)
 
-			# now we compute overall sequence scores
+				# update padding mask
+				if padding_mask is not None:
+					padding_mask = torch.repeat_interleave(padding_mask, num_beams, dim=0)
+					padding_mask = torch.cat([padding_mask, torch.ones((batch_size * num_beams, 1)).to(padding_mask.device)], dim=-1)
 
-			sampled_probs_scores = self.get_total_prob_score(sampled_probs)
-			# sampled_probs_scores.shape = batch_size x k*k
+				# set up sampled_probs
+				sampled_probs = topk_probs.reshape((batch_size * num_beams, 1))
 
-			# now we sample top indices
-			_, indices = torch.topk(sampled_probs_scores, dim=-1, k=num_beams)
+				# update attn_weights_list but that's only needed in case we want to return
+				attn_weights_list = torch.repeat_interleave(attn_weights_list.unsqueeze(2), num_beams, dim=2)
 
-			# now that we know topk indices, we bring down k*k back to k
-			input_ids = torch.gather(input_ids, dim=1, index=indices.unsqueeze(-1).expand(-1, -1, input_ids.shape[-1]))
-			sampled_probs = torch.gather(sampled_probs, dim=1, index=indices.unsqueeze(-1).expand(-1, -1, sampled_probs.shape[-1]))
+				continue
 
-			# disclosure: the syntax and the fxns to be used to do this selection was found online
-			# now we deal with the attention weights list
-			dim = 2
-			idx = indices.unsqueeze(0)
-			idx = idx.reshape(*idx.shape[:dim], *idx.shape[dim:], *([1] * (awl.ndim - idx.ndim)))
-			idx = idx.expand(*awl.shape[:dim], indices.shape[-1], *awl.shape[dim + 1:])
-			awl = torch.gather(awl, dim=dim, index=idx)
+			# ============================================================ #
+			# ADDING SAMPLED DATA BACK TO INPUT DATA
 
-			# ======================================== #
-			# move input_ids back to actual shape
-			input_ids = input_ids.reshape(batch_size * num_beams, -1)
+			# we'll need to update input_ids, sampled_probs, attn_weights_list
+			# and we'll add 1s to padding mask as well
 
-			# append 1s to padding mask
+			# input_ids --> batch_size * k x seq_len
+			# topk_indices --> batch_size * k x k
+			# we want --> batch_size x k * k x (seq_len + 1)
+
+			input_ids = torch.repeat_interleave(input_ids.reshape((batch_size, num_beams, -1)), num_beams, dim=1)
+			input_ids = torch.cat([input_ids, topk_indices.reshape((batch_size, num_beams * num_beams, 1))], dim=-1)
+
+			# sampled_probs --> batch_size * k x seq_len
+			# topk_probs --> batch_size * k x k
+			# we want --> batch_size x k * k x (seq_len + 1)
+
+			sampled_probs = torch.repeat_interleave(sampled_probs.reshape((batch_size, num_beams, -1)), num_beams, dim=1)
+			sampled_probs = torch.cat([sampled_probs, topk_probs.reshape((batch_size, num_beams * num_beams, 1))], dim=-1)
+
+			# attn_weights_list --> num_layers x batch_size * k x num_heads x seq_len x seq_len
+			# we want --> num_layers x batch_size x batch_size x k * k x num_heads x seq_len x seq_len
+			awl_shape = attn_weights_list.shape
+			attn_weights_list = attn_weights_list.reshape((awl_shape[0], batch_size, num_beams, *awl_shape[2:]))
+			attn_weights_list = torch.repeat_interleave(attn_weights_list, num_beams, dim=2)
+
+			# ============================================================ #
+			# PICKING ONLY TOP K SAMPLES AND RESTORING SANITY
+
+			# we'll get sequence probabilities
+			total_prob_scores = self.get_total_prob_score(sampled_probs)
+			# total_prob_scores.shape = batch_size x k * k
+
+			# take top k indices here (add diversity option here)
+
+			# diversity sampling push
+			if diverse_sampling is True:
+
+				# if diverse sampling is true,
+				# we want to pick the top token from each sequence
+				# we have k * k probability scores
+				# sets of k correspond to each input (sorted)
+				# we want to set evry other score as 0
+				diverse_mask = torch.zeros_like(total_prob_scores)
+				diverse_mask[:,::num_beams] = 1.
+
+				total_prob_scores *= diverse_mask
+
+
+			# get top-k probabilities and their indices
+			_, topk_indices = torch.topk(total_prob_scores, num_beams, dim=-1, sorted=True)
+			# topk.shape = batch_size x k
+
+			# now we'll pick top k indices for
+			# input_ids, sampled_probs, attn_weights_list
+
+			# input_ids --> batch_size x k * k x (seq_len + 1)
+			# we want --> batch_size x k x (seq_len + 1)
+			# and then --> batch_size * k x (seq_len + 1)
+			index = torch.repeat_interleave(topk_indices.unsqueeze(-1), input_ids.shape[-1], dim=-1)
+			input_ids = torch.gather(input_ids, index=index, dim=1)
+			input_ids = input_ids.reshape((batch_size * num_beams, -1))
+
+			# sampled_probs --> batch_size x k * k x (seq_len + 1)
+			# we want --> batch_size x k x (seq_len + 1)
+			# and then --> batch_size * k x (seq_len + 1)
+			index = torch.repeat_interleave(topk_indices.unsqueeze(-1), sampled_probs.shape[-1], dim=-1)
+			sampled_probs = torch.gather(sampled_probs, index=index, dim=1)
+			sampled_probs = sampled_probs.reshape((batch_size * num_beams, -1))
+
+			# attn_weights_list --> num_layers x batch_size x k * k x num_heads x seq_len x seq_len
+			# we want --> num_layers x batch_size x k x num_heads x seq_len x seq_len
+			awl_shape = attn_weights_list.shape
+			index = topk_indices[None, :, :, None, None, None]
+			index = index.expand(awl_shape[0], -1, -1, *awl_shape[3:])
+			attn_weights_list = torch.gather(attn_weights_list, index=index, dim=2)
+
+			# padding mask --> simply add 1s
 			if padding_mask is not None:
-				padding_mask = torch.concat(
-					[
-						padding_mask,
-						torch.ones((batch_size * num_beams, 1)).to(padding_mask.device)
-					],
-					dim=1,
-				)
+				padding_mask = torch.cat([padding_mask, torch.ones((batch_size * num_beams, 1)).to(padding_mask.device)], dim=-1)
 
-			# ======================================== #
-			# ======================================== #
+			# now we're ready for the next round again
+
+		# ============================================================ #
+		# after finishing, convert data to required output format
 
 		# trim input ids if needed
 		if return_full_seq is False:
 			input_ids = input_ids[:, input_seq_len:]
 
-		# get input_ids to correct returnable shape
-		input_ids = input_ids.reshape((batch_size, num_beams, -1))
-		sampled_probs = sampled_probs[:, :, 1:] # drop the extra 1s added for ease
+		# now we rearrange the data back into num_samples zone
+
+		# first, the output data
+		input_ids = input_ids.reshape(batch_size, num_beams, -1)
+
+		# then, the probabilities
+		sampled_probs = sampled_probs.reshape(batch_size, num_beams, -1)
 
 		return {
-			"attn_weights_list": awl,
+			"attn_weights_list": attn_weights_list,
 			"sampled_probs": sampled_probs,
 			"output_ids": input_ids,
 		}
 
-	@torch.no_grad
+	@torch.no_grad()
 	def sampling_top_p_top_k(
 		self,
 		probs,
@@ -239,7 +311,7 @@ class GenerationMixin:
 
 		return sampled_ids
 
-	@torch.no_grad
+	@torch.no_grad()
 	def generate(
 		self,
 		input_ids,
@@ -252,7 +324,6 @@ class GenerationMixin:
 		num_beams = None,
 		num_samples = 1,
 		return_full_seq = False,
-		disable_tqdm = False,
 	):
 		"""
 		write an elegantly beautiful generate function
@@ -263,7 +334,7 @@ class GenerationMixin:
 		- top_k
 		- num_samples
 		- stop_token [pending]
-		- num_beams [pending]
+		- num_beams
 		"""
 
 		# base case for beam search handled upfront
@@ -271,11 +342,11 @@ class GenerationMixin:
 			return self.generate_beam_search(
 					input_ids=input_ids, padding_mask=padding_mask, max_new_tokens=max_new_tokens, 
 					sampling=sampling, temperature=temperature, top_p=top_p, top_k=top_k,
-					num_beams=num_beams, return_full_seq=return_full_seq
+					num_beams=num_beams, diverse_sampling=sampling, return_full_seq=return_full_seq
 				)
 
 
-		# input_ids=input_ids.shape = batch_size x seq_len
+		# input_ids.shape = batch_size x seq_len
 		# padding_mask.shape = batch_size x seq_len
 
 		# keep track of batch_size and input seq len
@@ -294,9 +365,10 @@ class GenerationMixin:
 
 		# keep track of sampled probabilities
 		sampled_probs = []
+		attn_weights_list = None
 
 		# start generating and appending to input_ids
-		for _ in tqdm(range(max_new_tokens), desc="generating...", disable=disable_tqdm):
+		for _ in tqdm(range(max_new_tokens), desc="generating...", disable=False):
 
 			# do a forward pass to get output logits
 			attn_weights_list, logits = self.forward(input_ids, padding_mask)

@@ -16,7 +16,7 @@ from transformer_lm.decoder_lm import Decoder_LM
 def get_device(use_gpu=True):
 	return torch.device("cuda" if torch.cuda.is_available() and use_gpu else "cpu")
 
-@torch.no_grad
+@torch.no_grad()
 def generate_interactive(config):
 
 	# step 1: get the device to be used
@@ -59,13 +59,13 @@ def generate_interactive(config):
 		padding_mask = torch.tensor(padding_mask).to(device)
 
 		# do the generation step
-		num_beams = 2
-		num_samples = 2
+		num_beams = 10
+		num_samples = 10
 		generated_data = model.generate(
 				input_ids=input_ids,
 				padding_mask=padding_mask,
 				max_new_tokens=16,
-				sampling=True,
+				sampling=False,
 				top_k=16,
 				top_p=0.6,
 				num_beams=num_beams,
